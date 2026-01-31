@@ -426,6 +426,7 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 	var ldflags []string
 	var cflags []string
 	var libs []string
+	var opensslCflags []string
 	var env []string
 
 	for _, dep := range deps {
@@ -456,24 +457,55 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 
 		// Add explicit static library paths for OpenSSL
 		if dep.Name == "openssl" {
-			libssl := filepath.Join(prefix, "lib", "libssl.a")
-			libcrypto := filepath.Join(prefix, "lib", "libcrypto.a")
+			libDir := filepath.Join(prefix, "lib")
+			libDir64 := filepath.Join(prefix, "lib64")
+			libssl := filepath.Join(libDir, "libssl.a")
+			libcrypto := filepath.Join(libDir, "libcrypto.a")
+			if !fsutil.Exists(libssl) || !fsutil.Exists(libcrypto) {
+				libssl = filepath.Join(libDir64, "libssl.a")
+				libcrypto = filepath.Join(libDir64, "libcrypto.a")
+			}
 			if fsutil.Exists(libssl) && fsutil.Exists(libcrypto) {
 				libs = append(libs, libssl, libcrypto, "-ldl", "-lpthread")
+			}
+			includeDir := filepath.Join(prefix, "include")
+			if fsutil.Exists(includeDir) {
+				opensslCflags = append(opensslCflags, "-I"+includeDir)
 			}
 		}
 
 		// Add curl library with OpenSSL dependencies
 		if dep.Name == "curl" {
 			opensslPrefix := filepath.Join(depsDir, "openssl")
-			libssl := filepath.Join(opensslPrefix, "lib", "libssl.a")
-			libcrypto := filepath.Join(opensslPrefix, "lib", "libcrypto.a")
-			libcurl := filepath.Join(prefix, "lib", "libcurl.a")
-			if fsutil.Exists(libcurl) && fsutil.Exists(libssl) && fsutil.Exists(libcrypto) {
-				// Add curl libs with its OpenSSL dependencies
-				curlLibs := fmt.Sprintf("-L%s/lib %s %s %s -ldl -lpthread -lz",
-					prefix, libcurl, libssl, libcrypto)
+			libDir := filepath.Join(prefix, "lib")
+			libDir64 := filepath.Join(prefix, "lib64")
+			curlLibDir := libDir
+			libcurl := filepath.Join(curlLibDir, "libcurl.a")
+			if !fsutil.Exists(libcurl) {
+				curlLibDir = libDir64
+				libcurl = filepath.Join(curlLibDir, "libcurl.a")
+			}
+
+			opensslLibDir := filepath.Join(opensslPrefix, "lib")
+			opensslLibDir64 := filepath.Join(opensslPrefix, "lib64")
+			libssl := filepath.Join(opensslLibDir, "libssl.a")
+			libcrypto := filepath.Join(opensslLibDir, "libcrypto.a")
+			if !fsutil.Exists(libssl) || !fsutil.Exists(libcrypto) {
+				libssl = filepath.Join(opensslLibDir64, "libssl.a")
+				libcrypto = filepath.Join(opensslLibDir64, "libcrypto.a")
+			}
+
+			if fsutil.Exists(libcurl) {
+				// Override pkg-config to control link order for static libcurl.
+				curlCflags := fmt.Sprintf("-I%s/include -DCURL_STATICLIB", prefix)
+				curlLibs := fmt.Sprintf("-L%s -lcurl", curlLibDir)
+				env = append(env, "CURL_CFLAGS="+curlCflags)
 				env = append(env, "CURL_LIBS="+curlLibs)
+			}
+
+			// Ensure OpenSSL libs are available in LIBS (appended at end by configure).
+			if fsutil.Exists(libssl) && fsutil.Exists(libcrypto) {
+				libs = append(libs, libssl, libcrypto, "-ldl", "-lpthread", "-lz")
 			}
 		}
 	}
@@ -515,6 +547,15 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 			libsStr = libsStr + " " + existingLibs
 		}
 		env = append(env, "LIBS="+libsStr)
+	}
+
+	if len(opensslCflags) > 0 {
+		existing := os.Getenv("OPENSSL_CFLAGS")
+		newFlags := strings.Join(opensslCflags, " ")
+		if existing != "" {
+			newFlags = newFlags + " " + existing
+		}
+		env = append(env, "OPENSSL_CFLAGS="+newFlags)
 	}
 
 	return env

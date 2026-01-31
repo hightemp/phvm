@@ -128,6 +128,11 @@ func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
 	if err := b.configure(ctx, version, sourceDir, buildDir, installDir); err != nil {
 		return fmt.Errorf("configure: %w", err)
 	}
+	if deps.NeedsDeps(version) {
+		if err := stripSystemInclude(buildDir); err != nil {
+			return fmt.Errorf("patch makefile includes: %w", err)
+		}
+	}
 
 	// Build
 	if err := b.make(ctx, version, buildDir); err != nil {
@@ -270,6 +275,22 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	}
 
 	return nil
+}
+
+func stripSystemInclude(buildDir string) error {
+	makefilePath := filepath.Join(buildDir, "Makefile")
+	content, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return err
+	}
+
+	updated := strings.ReplaceAll(string(content), "CFLAGS_CLEAN = -I/usr/include ", "CFLAGS_CLEAN = ")
+	updated = strings.ReplaceAll(updated, "CFLAGS_CLEAN = -I/usr/include", "CFLAGS_CLEAN =")
+	if updated == string(content) {
+		return nil
+	}
+
+	return os.WriteFile(makefilePath, []byte(updated), 0644)
 }
 
 // make runs make.

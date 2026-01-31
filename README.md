@@ -1,5 +1,8 @@
 # phvm - PHP Version Manager
 
+![Experimental](https://img.shields.io/badge/status-experimental-orange)
+![Vibe Coded](https://img.shields.io/badge/vibe-coded-blueviolet)
+
 A fast, cross-platform PHP version manager inspired by [nvm](https://github.com/nvm-sh/nvm). Install PHP from source, manage multiple versions, and switch between them seamlessly.
 
 ## Features

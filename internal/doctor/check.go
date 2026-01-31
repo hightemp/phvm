@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -300,6 +301,190 @@ Run: wsl --install
 Then follow Linux instructions inside WSL.`
 }
 
+// getPackageName returns the package name for a dependency on the given distro.
+func getPackageName(name, distro string) string {
+	debianPackages := map[string]string{
+		"make":       "build-essential",
+		"cc":         "build-essential",
+		"autoconf":   "autoconf",
+		"bison":      "bison",
+		"re2c":       "re2c",
+		"pkg-config": "pkg-config",
+		"tar":        "tar",
+		"gpg":        "gnupg",
+		"curl":       "curl",
+		"openssl":    "libssl-dev",
+		"libcurl":    "libcurl4-openssl-dev",
+		"zlib":       "zlib1g-dev",
+		"libxml-2.0": "libxml2-dev",
+		"readline":   "libreadline-dev",
+		"bz2":        "libbz2-dev",
+		"sqlite3":    "libsqlite3-dev",
+		"oniguruma":  "libonig-dev",
+	}
+
+	fedoraPackages := map[string]string{
+		"make":       "make",
+		"cc":         "gcc",
+		"autoconf":   "autoconf",
+		"bison":      "bison",
+		"re2c":       "re2c",
+		"pkg-config": "pkgconfig",
+		"tar":        "tar",
+		"gpg":        "gnupg2",
+		"curl":       "curl",
+		"openssl":    "openssl-devel",
+		"libcurl":    "libcurl-devel",
+		"zlib":       "zlib-devel",
+		"libxml-2.0": "libxml2-devel",
+		"readline":   "readline-devel",
+		"bz2":        "bzip2-devel",
+		"sqlite3":    "sqlite-devel",
+		"oniguruma":  "oniguruma-devel",
+	}
+
+	archPackages := map[string]string{
+		"make":       "base-devel",
+		"cc":         "base-devel",
+		"autoconf":   "autoconf",
+		"bison":      "bison",
+		"re2c":       "re2c",
+		"pkg-config": "pkgconf",
+		"tar":        "tar",
+		"gpg":        "gnupg",
+		"curl":       "curl",
+		"openssl":    "openssl",
+		"libcurl":    "curl",
+		"zlib":       "zlib",
+		"libxml-2.0": "libxml2",
+		"readline":   "readline",
+		"bz2":        "bzip2",
+		"sqlite3":    "sqlite",
+		"oniguruma":  "oniguruma",
+	}
+
+	var packages map[string]string
+	switch distro {
+	case "debian", "ubuntu":
+		packages = debianPackages
+	case "fedora", "rhel", "centos":
+		packages = fedoraPackages
+	case "arch":
+		packages = archPackages
+	default:
+		return name
+	}
+
+	// Strip " (lib)" suffix if present
+	cleanName := name
+	if len(name) > 6 && name[len(name)-6:] == " (lib)" {
+		cleanName = name[:len(name)-6]
+	}
+
+	if pkg, ok := packages[cleanName]; ok {
+		return pkg
+	}
+	return cleanName
+}
+
+// GetInstallCommand returns a single command to install all missing packages.
+func GetInstallCommand(result *DoctorResult) string {
+	if runtime.GOOS != "linux" {
+		if runtime.GOOS == "darwin" {
+			return getMacOSInstallCommand(result)
+		}
+		return ""
+	}
+
+	distro := detectLinuxDistro()
+	if distro == "" {
+		return ""
+	}
+
+	// Collect unique packages
+	packageSet := make(map[string]bool)
+	for _, check := range result.Checks {
+		if !check.Found {
+			pkg := getPackageName(check.Name, distro)
+			if pkg != "" {
+				packageSet[pkg] = true
+			}
+		}
+	}
+
+	if len(packageSet) == 0 {
+		return ""
+	}
+
+	// Convert to sorted slice for consistent output
+	packages := make([]string, 0, len(packageSet))
+	for pkg := range packageSet {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+
+	// Build command based on distro
+	var cmd string
+	switch distro {
+	case "debian", "ubuntu":
+		cmd = "sudo apt-get install -y"
+	case "fedora":
+		cmd = "sudo dnf install -y"
+	case "rhel", "centos":
+		cmd = "sudo yum install -y"
+	case "arch":
+		cmd = "sudo pacman -S --noconfirm"
+	default:
+		return ""
+	}
+
+	for _, pkg := range packages {
+		cmd += " " + pkg
+	}
+
+	return cmd
+}
+
+// getMacOSInstallCommand returns brew install command for macOS.
+func getMacOSInstallCommand(result *DoctorResult) string {
+	brewPackages := map[string]string{
+		"autoconf":   "autoconf",
+		"bison":      "bison",
+		"re2c":       "re2c",
+		"pkg-config": "pkg-config",
+		"openssl":    "openssl",
+		"libcurl":    "", // Built-in
+		"zlib":       "", // Built-in
+		"libxml-2.0": "", // Built-in
+		"readline":   "readline",
+		"bz2":        "", // Built-in
+	}
+
+	packages := make([]string, 0)
+	for _, check := range result.Checks {
+		if !check.Found {
+			cleanName := check.Name
+			if len(cleanName) > 6 && cleanName[len(cleanName)-6:] == " (lib)" {
+				cleanName = cleanName[:len(cleanName)-6]
+			}
+			if pkg, ok := brewPackages[cleanName]; ok && pkg != "" {
+				packages = append(packages, pkg)
+			}
+		}
+	}
+
+	if len(packages) == 0 {
+		return ""
+	}
+
+	cmd := "brew install"
+	for _, pkg := range packages {
+		cmd += " " + pkg
+	}
+
+	return cmd
+}
+
 // FormatResults formats check results for display.
 func FormatResults(result *DoctorResult) string {
 	var sb strings.Builder
@@ -333,10 +518,23 @@ func FormatResults(result *DoctorResult) string {
 
 	sb.WriteString("\n")
 
-	if result.AllOK {
+	if result.AllOK && result.Warnings == 0 {
+		sb.WriteString("All dependencies are installed!\n")
+	} else if result.AllOK {
 		sb.WriteString("All required dependencies are installed!\n")
+		if result.Warnings > 0 {
+			sb.WriteString(fmt.Sprintf("Optional missing: %d\n", result.Warnings))
+		}
 	} else {
 		sb.WriteString(fmt.Sprintf("Missing: %d required, %d optional\n", result.Errors, result.Warnings))
+	}
+
+	// Add install command suggestion if anything is missing
+	if result.Errors > 0 || result.Warnings > 0 {
+		if installCmd := GetInstallCommand(result); installCmd != "" {
+			sb.WriteString("\nTo install missing packages, run:\n")
+			sb.WriteString(fmt.Sprintf("  %s\n", installCmd))
+		}
 	}
 
 	return sb.String()

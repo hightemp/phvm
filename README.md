@@ -349,3 +349,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 - Inspired by [nvm](https://github.com/nvm-sh/nvm) for Node.js
 - PHP source from [php.net](https://www.php.net/)
 - Extensions from [PECL](https://pecl.php.net/)
+
+![](https://asdertasd.site/counter/phvm)

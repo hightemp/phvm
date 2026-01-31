@@ -62,6 +62,7 @@ release:
 
 brews:
   - name: phvm
+    skip_upload: true
     repository:
       owner: hightemp
       name: homebrew-tap

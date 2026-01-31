@@ -92,7 +92,9 @@ func runInstall(cmd *cobra.Command, args []string) {
 	// Notify about dependencies that will be built
 	if doctor.GetOpenSSLMajorVersion() >= 3 {
 		major, minor := parseVersionParts(version)
-		if major < 8 || (major == 8 && minor < 1) {
+		if major < 7 || (major == 7 && minor < 1) {
+			log.Info("PHP %s requires OpenSSL 1.0.2 - will build it automatically", version)
+		} else if major == 7 || (major == 8 && minor < 1) {
 			log.Info("PHP %s requires OpenSSL 1.1.x - will build it automatically", version)
 		}
 	}

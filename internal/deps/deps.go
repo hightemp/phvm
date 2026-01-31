@@ -54,8 +54,62 @@ func GetRequiredDeps(phpVersion string) []Dependency {
 
 	var deps []Dependency
 
-	// PHP < 8.1 needs OpenSSL 1.1.x for compatibility with OpenSSL 3.x systems
-	if major < 8 || (major == 8 && minor < 1) {
+	// PHP 5.x/7.0 require OpenSSL 1.0.2 (no support for 1.1+)
+	if major < 7 || (major == 7 && minor < 1) {
+		// OpenSSL must be built first
+		deps = append(deps, Dependency{
+			Name:    "openssl",
+			Version: "1.0.2u",
+			URL:     "https://www.openssl.org/source/openssl-1.0.2u.tar.gz",
+			ConfigureCmd: []string{
+				"./config",
+				"--prefix=%PREFIX%",
+				"--openssldir=%PREFIX%/ssl",
+				"no-shared",
+				"no-tests",
+			},
+			Required: true,
+		})
+
+		// curl must be built with our OpenSSL
+		deps = append(deps, Dependency{
+			Name:    "curl",
+			Version: "8.5.0",
+			URL:     "https://curl.se/download/curl-8.5.0.tar.gz",
+			ConfigureCmd: []string{
+				"./configure",
+				"--prefix=%PREFIX%",
+				"--with-openssl=%DEPSDIR%/openssl",
+				"--without-libpsl",
+				"--without-brotli",
+				"--without-zstd",
+				"--without-nghttp2",
+				"--without-libidn2",
+				"--without-librtmp",
+				"--disable-shared",
+				"--enable-static",
+				"--disable-ldap",
+				"--disable-ldaps",
+				"--disable-rtsp",
+				"--disable-dict",
+				"--disable-telnet",
+				"--disable-tftp",
+				"--disable-pop3",
+				"--disable-imap",
+				"--disable-smb",
+				"--disable-smtp",
+				"--disable-gopher",
+				"--disable-mqtt",
+				"--disable-manual",
+			},
+			Required:  true,
+			DependsOn: []string{"openssl"},
+		})
+		return deps
+	}
+
+	// PHP 7.1 - 8.0 need OpenSSL 1.1.x for compatibility with OpenSSL 3.x systems
+	if major == 7 || (major == 8 && minor < 1) {
 		// OpenSSL must be built first
 		deps = append(deps, Dependency{
 			Name:    "openssl",

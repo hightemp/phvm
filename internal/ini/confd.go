@@ -15,6 +15,8 @@ const (
 )
 
 // IniFile represents an ini file in conf.d.
+//
+//nolint:revive // IniFile is more descriptive than just File in this context
 type IniFile struct {
 	Name     string
 	Path     string

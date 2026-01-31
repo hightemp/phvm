@@ -21,7 +21,6 @@ type Verifier struct {
 	cacheDir    string
 	gpgEnabled  bool
 	gpgFallback bool
-	keyringPath string
 }
 
 // NewVerifier creates a new Verifier.

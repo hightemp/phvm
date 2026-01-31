@@ -3,8 +3,9 @@ package cli
 import (
 	"os"
 
-	"github.com/hightemp/phvm/internal/log"
 	"github.com/spf13/cobra"
+
+	"github.com/hightemp/phvm/internal/log"
 )
 
 var cacheCmd = &cobra.Command{
@@ -40,7 +41,7 @@ By default, clears all cache. Use flags to clear specific parts:
 			if err := os.RemoveAll(paths.Downloads); err != nil {
 				log.Warn("Failed to clear downloads: %v", err)
 			}
-			os.MkdirAll(paths.Downloads, 0755)
+			_ = os.MkdirAll(paths.Downloads, 0755)
 		}
 
 		if all || sources {
@@ -48,7 +49,7 @@ By default, clears all cache. Use flags to clear specific parts:
 			if err := os.RemoveAll(paths.Sources); err != nil {
 				log.Warn("Failed to clear sources: %v", err)
 			}
-			os.MkdirAll(paths.Sources, 0755)
+			_ = os.MkdirAll(paths.Sources, 0755)
 		}
 
 		if all || build {
@@ -56,7 +57,7 @@ By default, clears all cache. Use flags to clear specific parts:
 			if err := os.RemoveAll(paths.Build); err != nil {
 				log.Warn("Failed to clear build files: %v", err)
 			}
-			os.MkdirAll(paths.Build, 0755)
+			_ = os.MkdirAll(paths.Build, 0755)
 		}
 
 		log.Success("Cache cleared")

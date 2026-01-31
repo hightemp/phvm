@@ -1,0 +1,28 @@
+# Build binary
+/phvm
+/phvm.exe
+
+# Cross-compilation output (make build-all)
+/dist/
+
+# Test coverage (make test-coverage)
+coverage.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor (if used)
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

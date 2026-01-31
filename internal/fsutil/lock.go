@@ -104,6 +104,6 @@ func WithLock(lockPath string, timeout time.Duration, fn func() error) error {
 	if err := lock.Lock(timeout); err != nil {
 		return err
 	}
-	defer lock.Unlock()
+	defer func() { _ = lock.Unlock() }()
 	return fn()
 }

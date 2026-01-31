@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/ext"
 	"github.com/hightemp/phvm/internal/log"
-	"github.com/spf13/cobra"
 )
 
 var extCmd = &cobra.Command{

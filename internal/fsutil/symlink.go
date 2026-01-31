@@ -39,10 +39,8 @@ func ReadSymlink(path string) (string, error) {
 
 // UpdateSymlink updates an existing symlink atomically.
 func UpdateSymlink(target, link string) error {
-	// Remove existing symlink/file if exists
-	if IsSymlink(link) || IsFile(link) {
-		// Don't remove, just use AtomicSymlink which will overwrite
-	}
+	// AtomicSymlink handles existing symlinks/files by using rename,
+	// which atomically replaces the target. No need to remove first.
 	return AtomicSymlink(target, link)
 }
 

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/hightemp/phvm/internal/fsutil"
 )
 
 // Config holds phvm configuration.

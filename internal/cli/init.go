@@ -3,9 +3,10 @@ package cli
 import (
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/shell"
-	"github.com/spf13/cobra"
 )
 
 var initCmd = &cobra.Command{

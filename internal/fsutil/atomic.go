@@ -108,7 +108,7 @@ func AtomicCopyFile(src, dst string, perm os.FileMode) error {
 // RandomSuffix generates a random suffix for temporary files.
 func RandomSuffix() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 

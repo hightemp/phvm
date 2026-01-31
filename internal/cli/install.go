@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/hightemp/phvm/internal/build"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
-	"github.com/spf13/cobra"
 )
 
 var installCmd = &cobra.Command{
@@ -101,7 +102,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 		log.Error("Another installation of PHP %s is in progress", version)
 		os.Exit(1)
 	}
-	defer lock.Unlock()
+	defer func() { _ = lock.Unlock() }()
 
 	// Download and verify
 	startTime := time.Now()
@@ -170,7 +171,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 		// Also set as default alias
 		aliases := core.NewAliasManager(paths)
 		if !aliases.Exists("default") {
-			aliases.SetDefault(version)
+			_ = aliases.SetDefault(version)
 		}
 	}
 
@@ -207,7 +208,7 @@ var uninstallCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			// Clear current if forcing
-			current.Clear()
+			_ = current.Clear()
 		}
 
 		log.Info("Uninstalling PHP %s...", version)

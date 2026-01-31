@@ -195,7 +195,7 @@ func updateMetadataEnabled(paths *core.Paths, phpVersion, extName string, enable
 		metadata, err := core.LoadMetadata(metadataPath)
 		if err == nil {
 			metadata.SetExtensionEnabled(extName, enabled)
-			metadata.Save(metadataPath)
+			_ = metadata.Save(metadataPath)
 		}
 	}
 }

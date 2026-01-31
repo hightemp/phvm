@@ -80,7 +80,7 @@ func (d *Downloader) Download(ctx context.Context, url, filename string) (string
 			ShowBytes:   true,
 		})
 		reader = io.TeeReader(body, progress)
-		defer progress.Finish()
+		defer func() { _ = progress.Finish() }()
 	}
 
 	// Copy to file
@@ -156,7 +156,7 @@ func (d *Downloader) DownloadToPath(ctx context.Context, url, destPath string) e
 			ShowBytes:   true,
 		})
 		reader = io.TeeReader(body, progress)
-		defer progress.Finish()
+		defer func() { _ = progress.Finish() }()
 	}
 
 	written, err := io.Copy(tmpFile, reader)

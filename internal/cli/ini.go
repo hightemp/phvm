@@ -5,10 +5,11 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/spf13/cobra"
+
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/ini"
 	"github.com/hightemp/phvm/internal/log"
-	"github.com/spf13/cobra"
 )
 
 var iniCmd = &cobra.Command{

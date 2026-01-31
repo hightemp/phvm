@@ -19,6 +19,8 @@ type CheckResult struct {
 }
 
 // DoctorResult holds all check results.
+//
+//nolint:revive // DoctorResult is more descriptive than just Result
 type DoctorResult struct {
 	Checks   []CheckResult
 	AllOK    bool
@@ -88,7 +90,7 @@ func checkCommand(name string, required bool, helpText string) CheckResult {
 }
 
 // checkPkgConfig checks if a library is available via pkg-config.
-func checkPkgConfig(name string, required bool) CheckResult {
+func checkPkgConfig(name string, required bool) CheckResult { //nolint:unparam // required kept for API consistency
 	result := CheckResult{
 		Name:     name + " (lib)",
 		Required: required,
@@ -291,11 +293,11 @@ func getDarwinInstallHint(name string) string {
 	return fmt.Sprintf("brew install %s", name)
 }
 
-func getWindowsInstallHint(name string) string {
-	return fmt.Sprintf(`PHP compilation on Windows requires Visual Studio and Windows SDK.
+func getWindowsInstallHint(_ string) string { //nolint:unparam // name kept for API consistency with other hint functions
+	return `PHP compilation on Windows requires Visual Studio and Windows SDK.
 Recommended: Use WSL2 (Windows Subsystem for Linux) for building PHP.
 Run: wsl --install
-Then follow Linux instructions inside WSL.`)
+Then follow Linux instructions inside WSL.`
 }
 
 // FormatResults formats check results for display.

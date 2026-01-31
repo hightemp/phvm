@@ -117,7 +117,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Find the source directory
-	srcDir, err := i.findSourceDir(buildDir, opts.Name)
+	srcDir, err := i.findSourceDir(buildDir)
 	if err != nil {
 		return fmt.Errorf("find source directory: %w", err)
 	}
@@ -152,7 +152,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("get extension directory: %w", err)
 	}
 
-	// Find the installed .so file
+	// Verify the installed .so file exists
 	soFile := filepath.Join(extDir, opts.Name+".so")
 	if !fsutil.Exists(soFile) {
 		// Try to find it with different name
@@ -164,6 +164,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 			}
 		}
 	}
+	_ = soFile // soFile is used for verification, actual loading uses extension name
 
 	// Create ini file
 	confD := i.paths.VersionConfD(opts.PHPVersion)
@@ -180,7 +181,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		metadata, err := core.LoadMetadata(metadataPath)
 		if err == nil {
 			metadata.AddExtension(opts.Name, version, true)
-			metadata.Save(metadataPath)
+			_ = metadata.Save(metadataPath)
 		}
 	}
 
@@ -199,7 +200,7 @@ func (i *Installer) extract(ctx context.Context, tgzPath, destDir string) error 
 }
 
 // findSourceDir finds the source directory after extraction.
-func (i *Installer) findSourceDir(buildDir, extName string) (string, error) {
+func (i *Installer) findSourceDir(buildDir string) (string, error) {
 	entries, err := os.ReadDir(buildDir)
 	if err != nil {
 		return "", err
@@ -311,7 +312,7 @@ func (i *Installer) Uninstall(ctx context.Context, name, phpVersion string) erro
 		metadata, err := core.LoadMetadata(metadataPath)
 		if err == nil {
 			metadata.RemoveExtension(name)
-			metadata.Save(metadataPath)
+			_ = metadata.Save(metadataPath)
 		}
 	}
 

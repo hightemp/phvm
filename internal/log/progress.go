@@ -114,10 +114,10 @@ func NewSpinner(description string) *Spinner {
 
 // Tick advances the spinner.
 func (s *Spinner) Tick() {
-	s.bar.Add(1)
+	_ = s.bar.Add(1)
 }
 
 // Finish completes the spinner.
 func (s *Spinner) Finish() {
-	s.bar.Finish()
+	_ = s.bar.Finish()
 }

@@ -3,10 +3,11 @@ package cli
 import (
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/hightemp/phvm/internal/composer"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
-	"github.com/spf13/cobra"
 )
 
 var composerCmd = &cobra.Command{

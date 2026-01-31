@@ -71,6 +71,8 @@ func (p *PathInfo) ScanDirExists() bool {
 }
 
 // IniFilename returns just the filename from a path.
+//
+//nolint:revive // IniFilename is more descriptive than just Filename
 func IniFilename(path string) string {
 	return filepath.Base(path)
 }

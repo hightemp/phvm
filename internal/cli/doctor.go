@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hightemp/phvm/internal/doctor"
 	"github.com/spf13/cobra"
+
+	"github.com/hightemp/phvm/internal/doctor"
 )
 
 var doctorCmd = &cobra.Command{

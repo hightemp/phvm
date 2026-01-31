@@ -44,36 +44,6 @@ func getVerifier(paths *core.Paths, client *remote.Client) *remote.Verifier {
 	return verifier
 }
 
-// resolveVersion resolves a version string to a concrete version.
-func resolveVersion(paths *core.Paths, client *remote.Client, version string) (string, error) {
-	aliases := core.NewAliasManager(paths)
-
-	// Try to resolve as alias first
-	resolved, needsRemote, err := aliases.ResolveVersionOrAlias(version)
-	if err != nil {
-		return "", err
-	}
-
-	if !needsRemote {
-		return resolved, nil
-	}
-
-	// Need to query remote for special aliases
-	api := getAPI(client)
-	resolvedVersion, _, err := api.ResolveVersion(nil, version)
-	if err != nil {
-		return "", err
-	}
-
-	return resolvedVersion, nil
-}
-
-// getCurrentVersion returns the current PHP version.
-func getCurrentVersion(paths *core.Paths) (string, error) {
-	current := core.NewCurrentManager(paths)
-	return current.Get()
-}
-
 // ensureDirectories creates all required directories.
 func ensureDirectories(paths *core.Paths) error {
 	return paths.EnsureDirectories()

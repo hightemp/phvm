@@ -68,6 +68,8 @@ func (b *Builder) SetLogWriter(w io.Writer) {
 }
 
 // BuildOptions holds options for building PHP.
+//
+//nolint:revive // BuildOptions is more descriptive than just Options
 type BuildOptions struct {
 	Version     string
 	TarballPath string

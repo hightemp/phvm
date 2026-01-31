@@ -51,6 +51,10 @@ func Check() *DoctorResult {
 	result.Checks = append(result.Checks, checkPkgConfig("libcurl", false))
 	result.Checks = append(result.Checks, checkPkgConfig("zlib", false))
 	result.Checks = append(result.Checks, checkPkgConfig("libxml-2.0", false))
+	result.Checks = append(result.Checks, checkPkgConfig("oniguruma", false))
+	result.Checks = append(result.Checks, checkPkgConfig("libbz2", false))
+	result.Checks = append(result.Checks, checkPkgConfig("readline", false))
+	result.Checks = append(result.Checks, checkPkgConfig("sqlite3", false))
 
 	// Calculate totals
 	result.AllOK = true
@@ -319,6 +323,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2-dev",
 		"readline":   "libreadline-dev",
 		"bz2":        "libbz2-dev",
+		"libbz2":     "libbz2-dev",
 		"sqlite3":    "libsqlite3-dev",
 		"oniguruma":  "libonig-dev",
 	}
@@ -339,6 +344,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2-devel",
 		"readline":   "readline-devel",
 		"bz2":        "bzip2-devel",
+		"libbz2":     "bzip2-devel",
 		"sqlite3":    "sqlite-devel",
 		"oniguruma":  "oniguruma-devel",
 	}
@@ -359,6 +365,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2",
 		"readline":   "readline",
 		"bz2":        "bzip2",
+		"libbz2":     "bzip2",
 		"sqlite3":    "sqlite",
 		"oniguruma":  "oniguruma",
 	}

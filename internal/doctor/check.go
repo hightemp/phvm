@@ -52,7 +52,7 @@ func Check() *DoctorResult {
 	result.Checks = append(result.Checks, checkPkgConfig("zlib", false))
 	result.Checks = append(result.Checks, checkPkgConfig("libxml-2.0", false))
 	result.Checks = append(result.Checks, checkPkgConfig("oniguruma", false))
-	result.Checks = append(result.Checks, checkPkgConfig("libbz2", false))
+	result.Checks = append(result.Checks, checkHeader("bzip2", "bzlib.h", false, getInstallHint("bz2")))
 	result.Checks = append(result.Checks, checkPkgConfig("readline", false))
 	result.Checks = append(result.Checks, checkPkgConfig("sqlite3", false))
 
@@ -113,6 +113,33 @@ func checkPkgConfig(name string, required bool) CheckResult { //nolint:unparam /
 	cmd = exec.Command("pkg-config", "--modversion", name)
 	if output, err := cmd.Output(); err == nil {
 		result.Version = strings.TrimSpace(string(output))
+	}
+
+	return result
+}
+
+// checkHeader checks if a C header file is available.
+func checkHeader(name, header string, required bool, helpText string) CheckResult {
+	result := CheckResult{
+		Name:     name + " (lib)",
+		Required: required,
+		HelpText: helpText,
+	}
+
+	// Common include paths to check
+	includePaths := []string{
+		"/usr/include",
+		"/usr/local/include",
+		"/opt/homebrew/include",
+	}
+
+	for _, path := range includePaths {
+		headerPath := path + "/" + header
+		if _, err := exec.Command("test", "-f", headerPath).CombinedOutput(); err == nil {
+			result.Found = true
+			result.Path = headerPath
+			return result
+		}
 	}
 
 	return result
@@ -323,7 +350,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2-dev",
 		"readline":   "libreadline-dev",
 		"bz2":        "libbz2-dev",
-		"libbz2":     "libbz2-dev",
+		"bzip2":      "libbz2-dev",
 		"sqlite3":    "libsqlite3-dev",
 		"oniguruma":  "libonig-dev",
 	}
@@ -344,7 +371,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2-devel",
 		"readline":   "readline-devel",
 		"bz2":        "bzip2-devel",
-		"libbz2":     "bzip2-devel",
+		"bzip2":      "bzip2-devel",
 		"sqlite3":    "sqlite-devel",
 		"oniguruma":  "oniguruma-devel",
 	}
@@ -365,7 +392,7 @@ func getPackageName(name, distro string) string {
 		"libxml-2.0": "libxml2",
 		"readline":   "readline",
 		"bz2":        "bzip2",
-		"libbz2":     "bzip2",
+		"bzip2":      "bzip2",
 		"sqlite3":    "sqlite",
 		"oniguruma":  "oniguruma",
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hightemp/phvm/internal/core"
+	"github.com/hightemp/phvm/internal/deps"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
@@ -25,6 +26,7 @@ type Builder struct {
 	profile     *Profile
 	customFlags []string
 	logWriter   io.Writer
+	depsManager *deps.DepsManager
 }
 
 // NewBuilder creates a new Builder.
@@ -38,10 +40,11 @@ func NewBuilder(paths *core.Paths, client *remote.Client) *Builder {
 	}
 
 	return &Builder{
-		paths:   paths,
-		client:  client,
-		jobs:    jobs,
-		profile: CommonProfile(),
+		paths:       paths,
+		client:      client,
+		jobs:        jobs,
+		profile:     CommonProfile(),
+		depsManager: deps.NewDepsManager(paths, client, jobs),
 	}
 }
 
@@ -95,6 +98,15 @@ func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
 	}
 	if opts.Jobs > 0 {
 		b.SetJobs(opts.Jobs)
+		b.depsManager = deps.NewDepsManager(b.paths, b.client, opts.Jobs)
+	}
+
+	// Build dependencies if needed
+	if deps.NeedsDeps(version) {
+		log.Info("Building required dependencies for PHP %s...", version)
+		if err := b.depsManager.EnsureDeps(ctx, version); err != nil {
+			return fmt.Errorf("build dependencies: %w", err)
+		}
 	}
 
 	// Setup directories
@@ -113,12 +125,12 @@ func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// Configure
-	if err := b.configure(ctx, sourceDir, buildDir, installDir); err != nil {
+	if err := b.configure(ctx, version, sourceDir, buildDir, installDir); err != nil {
 		return fmt.Errorf("configure: %w", err)
 	}
 
 	// Build
-	if err := b.make(ctx, buildDir); err != nil {
+	if err := b.make(ctx, version, buildDir); err != nil {
 		return fmt.Errorf("make: %w", err)
 	}
 
@@ -198,11 +210,20 @@ func (b *Builder) extract(ctx context.Context, tarballPath, sourceDir string) er
 }
 
 // configure runs ./configure with the appropriate flags.
-func (b *Builder) configure(ctx context.Context, sourceDir, buildDir, installDir string) error {
+func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, installDir string) error {
 	log.Info("Configuring...")
 
 	// Merge profile and custom flags
 	flags := MergeFlags(b.profile, b.customFlags)
+
+	// Add dependency-specific configure flags
+	if deps.NeedsDeps(version) {
+		depsFlags := b.depsManager.GetConfigureFlags(version)
+		if len(depsFlags) > 0 {
+			log.Debug("Adding dependency flags: %v", depsFlags)
+			flags = MergeFlags(&Profile{Flags: flags}, depsFlags)
+		}
+	}
 
 	// Add prefix
 	flags = append([]string{"--prefix=" + installDir}, flags...)
@@ -221,7 +242,17 @@ func (b *Builder) configure(ctx context.Context, sourceDir, buildDir, installDir
 	configurePath := filepath.Join(sourceDir, "configure")
 	cmd := exec.CommandContext(ctx, configurePath, flags...)
 	cmd.Dir = buildDir
-	cmd.Env = os.Environ()
+
+	// Set environment with dependency paths
+	env := os.Environ()
+	if deps.NeedsDeps(version) {
+		depsEnv := b.depsManager.GetBuildEnv(version)
+		if len(depsEnv) > 0 {
+			log.Debug("Adding dependency env: %v", depsEnv)
+			env = append(env, depsEnv...)
+		}
+	}
+	cmd.Env = env
 
 	if b.logWriter != nil {
 		cmd.Stdout = b.logWriter
@@ -242,12 +273,21 @@ func (b *Builder) configure(ctx context.Context, sourceDir, buildDir, installDir
 }
 
 // make runs make.
-func (b *Builder) make(ctx context.Context, buildDir string) error {
+func (b *Builder) make(ctx context.Context, version, buildDir string) error {
 	log.Info("Building (this may take a while)...")
 
 	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", b.jobs))
 	cmd.Dir = buildDir
-	cmd.Env = os.Environ()
+
+	// Set environment with dependency paths
+	env := os.Environ()
+	if deps.NeedsDeps(version) {
+		depsEnv := b.depsManager.GetBuildEnv(version)
+		if len(depsEnv) > 0 {
+			env = append(env, depsEnv...)
+		}
+	}
+	cmd.Env = env
 
 	if b.logWriter != nil {
 		cmd.Stdout = b.logWriter

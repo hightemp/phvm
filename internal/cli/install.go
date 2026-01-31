@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,18 @@ import (
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
 )
+
+// parseVersionParts extracts major and minor version numbers.
+func parseVersionParts(version string) (int, int) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0
+	}
+	var major, minor int
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major, minor
+}
 
 var installCmd = &cobra.Command{
 	Use:   "install <version>",
@@ -76,9 +89,12 @@ func runInstall(cmd *cobra.Command, args []string) {
 	}
 	log.Success("Resolved to PHP %s", version)
 
-	// Check OpenSSL compatibility
-	if compatErr := doctor.CheckPHPOpenSSLCompatibility(version); compatErr != "" {
-		log.Warn("Compatibility warning:\n%s", compatErr)
+	// Notify about dependencies that will be built
+	if doctor.GetOpenSSLMajorVersion() >= 3 {
+		major, minor := parseVersionParts(version)
+		if major < 8 || (major == 8 && minor < 1) {
+			log.Info("PHP %s requires OpenSSL 1.1.x - will build it automatically", version)
+		}
 	}
 
 	// Check if already installed

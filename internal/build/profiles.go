@@ -1,6 +1,12 @@
 // Package build provides PHP build functionality.
 package build
 
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
 // Profile represents a build profile with configure flags.
 type Profile struct {
 	Name        string
@@ -171,4 +177,47 @@ func extractOption(flag string) string {
 		}
 	}
 	return flag
+}
+
+// FilterFlagsForVersion filters configure flags based on PHP version.
+// Some extensions don't work with certain OpenSSL versions.
+func FilterFlagsForVersion(flags []string, phpVersion string) []string {
+	parts := strings.Split(phpVersion, ".")
+	if len(parts) < 2 {
+		return flags
+	}
+	var major, minor int
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+
+	// PHP < 8.1 with OpenSSL 3.x: curl extension links against system OpenSSL
+	// which conflicts with our custom OpenSSL 1.1. Disable curl.
+	if major < 8 || (major == 8 && minor < 1) {
+		// Check if system has OpenSSL 3.x
+		if hasOpenSSL3() {
+			filtered := make([]string, 0, len(flags))
+			for _, flag := range flags {
+				opt := extractOption(flag)
+				// Skip curl - it links against system OpenSSL 3.x
+				if opt == "curl" {
+					continue
+				}
+				filtered = append(filtered, flag)
+			}
+			return filtered
+		}
+	}
+
+	return flags
+}
+
+// hasOpenSSL3 checks if the system has OpenSSL 3.x.
+func hasOpenSSL3() bool {
+	cmd := exec.Command("pkg-config", "--modversion", "openssl")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	version := strings.TrimSpace(string(output))
+	return strings.HasPrefix(version, "3.")
 }

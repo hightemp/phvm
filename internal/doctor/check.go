@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -27,6 +28,62 @@ type DoctorResult struct {
 	AllOK    bool
 	Warnings int
 	Errors   int
+}
+
+// GetOpenSSLMajorVersion returns the major version of OpenSSL (1 or 3).
+// Returns 0 if OpenSSL is not found or version cannot be determined.
+func GetOpenSSLMajorVersion() int {
+	cmd := exec.Command("pkg-config", "--modversion", "openssl")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	version := strings.TrimSpace(string(output))
+	parts := strings.Split(version, ".")
+	if len(parts) == 0 {
+		return 0
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0
+	}
+	return major
+}
+
+// CheckPHPOpenSSLCompatibility checks if PHP version is compatible with system OpenSSL.
+// Returns an error message if incompatible, empty string if compatible.
+func CheckPHPOpenSSLCompatibility(phpVersion string) string {
+	opensslMajor := GetOpenSSLMajorVersion()
+	if opensslMajor == 0 {
+		return ""
+	}
+
+	// Parse PHP version
+	parts := strings.Split(phpVersion, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	phpMajor, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return ""
+	}
+	phpMinor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	// PHP < 8.1 is not compatible with OpenSSL 3.0
+	if opensslMajor >= 3 && (phpMajor < 8 || (phpMajor == 8 && phpMinor < 1)) {
+		return fmt.Sprintf(
+			"PHP %s is not compatible with OpenSSL 3.x (you have OpenSSL %d.x).\n"+
+				"Options:\n"+
+				"  1. Build without OpenSSL: phvm install %s --configure=\"--without-openssl --without-curl\"\n"+
+				"  2. Use minimal profile: phvm install %s --profile=minimal\n"+
+				"  3. Install PHP 8.1+ which supports OpenSSL 3.x",
+			phpVersion, opensslMajor, phpVersion, phpVersion)
+	}
+
+	return ""
 }
 
 // Check runs all system checks.

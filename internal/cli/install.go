@@ -10,6 +10,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/build"
 	"github.com/hightemp/phvm/internal/core"
+	"github.com/hightemp/phvm/internal/doctor"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
@@ -74,6 +75,11 @@ func runInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	log.Success("Resolved to PHP %s", version)
+
+	// Check OpenSSL compatibility
+	if compatErr := doctor.CheckPHPOpenSSLCompatibility(version); compatErr != "" {
+		log.Warn("Compatibility warning:\n%s", compatErr)
+	}
 
 	// Check if already installed
 	installed := core.NewInstalledManager(paths)

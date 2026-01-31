@@ -18,6 +18,14 @@ type FileLockWindows struct {
 	handle windows.Handle
 }
 
+// FileLock is the platform-specific file lock implementation on Windows.
+type FileLock = FileLockWindows
+
+// NewFileLock creates a new file lock.
+func NewFileLock(path string) *FileLock {
+	return NewFileLockWindows(path)
+}
+
 // NewFileLockWindows creates a new file lock for Windows.
 func NewFileLockWindows(path string) *FileLockWindows {
 	return &FileLockWindows{path: path}

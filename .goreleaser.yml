@@ -1,0 +1,88 @@
+version: 2
+
+project_name: phvm
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: phvm
+    main: ./cmd/phvm
+    binary: phvm
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/hightemp/phvm/internal/cli.Version={{.Version}}
+      - -X github.com/hightemp/phvm/internal/cli.Commit={{.ShortCommit}}
+
+archives:
+  - id: phvm
+    builds:
+      - phvm
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: hightemp
+    name: phvm
+  prerelease: auto
+  mode: replace
+
+brews:
+  - name: phvm
+    repository:
+      owner: hightemp
+      name: homebrew-tap
+    folder: Formula
+    homepage: https://github.com/hightemp/phvm
+    description: PHP Version Manager - install and manage PHP versions from source
+    license: MIT
+    install: |
+      bin.install "phvm"
+    test: |
+      system "#{bin}/phvm", "version"
+
+nfpms:
+  - id: phvm
+    package_name: phvm
+    vendor: hightemp
+    homepage: https://github.com/hightemp/phvm
+    maintainer: hightemp
+    description: PHP Version Manager - install and manage PHP versions from source
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin

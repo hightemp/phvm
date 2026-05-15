@@ -1,7 +1,9 @@
 # phvm - PHP Version Manager
 
-![Experimental](https://img.shields.io/badge/status-experimental-orange)
-![Vibe Coded](https://img.shields.io/badge/vibe-coded-blueviolet)
+[![GitHub release](https://img.shields.io/github/v/release/hightemp/phvm)](https://github.com/hightemp/phvm/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/hightemp/phvm/total)](https://github.com/hightemp/phvm/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hightemp/phvm)](https://goreportcard.com/report/github.com/hightemp/phvm)
+![](https://asdertasd.site/counter/phvm)
 
 A fast, cross-platform PHP version manager inspired by [nvm](https://github.com/nvm-sh/nvm). Install PHP from source, manage multiple versions, and switch between them seamlessly.
 
@@ -350,4 +352,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 - PHP source from [php.net](https://www.php.net/)
 - Extensions from [PECL](https://pecl.php.net/)
 
-![](https://asdertasd.site/counter/phvm)

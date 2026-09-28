@@ -2,40 +2,55 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/hightemp/phvm/internal/redact"
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 // CheckResult represents the result of a dependency check.
 type CheckResult struct {
-	Name     string
-	Found    bool
-	Path     string
-	Version  string
-	Required bool
-	HelpText string
-	Problem  string
+	Name        string
+	Found       bool
+	Path        string
+	Version     string
+	Required    bool
+	HelpText    string
+	Problem     string
+	ProblemKind string
+	Deferred    bool
 }
 
 // DoctorResult holds all check results.
 //
 //nolint:revive // DoctorResult is more descriptive than just Result
 type DoctorResult struct {
-	Checks   []CheckResult
-	AllOK    bool
-	Warnings int
-	Errors   int
+	Checks      []CheckResult
+	AllOK       bool
+	Warnings    int
+	Errors      int
+	Deferred    int
+	PHPVersion  string
+	Profile     string
+	Environment string
 }
 
 // GetOpenSSLMajorVersion returns the major version of OpenSSL (1 or 3).
 // Returns 0 if OpenSSL is not found or version cannot be determined.
 func GetOpenSSLMajorVersion() int {
-	cmd := exec.Command("pkg-config", "--modversion", "openssl")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd, err := toolchain.Current().Command(ctx, "PKG_CONFIG", "pkg-config", "--modversion", "openssl")
+	if err != nil {
+		return 0
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return 0
@@ -88,172 +103,15 @@ func CheckPHPOpenSSLCompatibility(phpVersion string) string {
 	return ""
 }
 
-// Check runs all system checks.
+// Check runs checks for the default PHP 8.3 common profile.
 func Check() *DoctorResult {
-	result := &DoctorResult{}
-
-	// Required dependencies
-	result.Checks = append(result.Checks, checkCommand("make", true, getInstallHint("make")))
-	result.Checks = append(result.Checks, checkCommand("cc", true, getInstallHint("cc")))
-	result.Checks = append(result.Checks, checkCommand("autoconf", true, getInstallHint("autoconf")))
-	result.Checks = append(result.Checks, checkCommand("bison", false, getInstallHint("bison")))
-	result.Checks = append(result.Checks, checkCommand("re2c", false, getInstallHint("re2c")))
-	result.Checks = append(result.Checks, checkCommand("pkg-config", false, getInstallHint("pkg-config")))
-
-	// Optional but recommended
-	result.Checks = append(result.Checks, checkCommand("gpg", false, "Optional: for GPG signature verification"))
-	result.Checks = append(result.Checks, checkCommand("curl", false, "Optional: for downloading"))
-	result.Checks = append(result.Checks, checkCommand("tar", true, getInstallHint("tar")))
-
-	// Common library headers (check pkg-config)
-	result.Checks = append(result.Checks, checkPkgConfig("openssl", false))
-	result.Checks = append(result.Checks, checkPkgConfig("libcurl", false))
-	result.Checks = append(result.Checks, checkPkgConfig("zlib", false))
-	result.Checks = append(result.Checks, checkPkgConfig("libxml-2.0", false))
-	result.Checks = append(result.Checks, checkPkgConfig("oniguruma", false))
-	result.Checks = append(result.Checks, checkHeader("bzip2", "bzlib.h", false, getInstallHint("bz2")))
-	result.Checks = append(result.Checks, checkPkgConfig("readline", false))
-	result.Checks = append(result.Checks, checkPkgConfig("sqlite3", false))
-
-	// Calculate totals
-	result.AllOK = true
-	for _, check := range result.Checks {
-		if !check.Found {
-			if check.Required {
-				result.Errors++
-				result.AllOK = false
-			} else {
-				result.Warnings++
-			}
-		}
-	}
-
+	result, _ := CheckFor(context.Background(), Options{})
 	return result
 }
 
-// checkCommand checks if a command is available.
-func checkCommand(name string, required bool, helpText string) CheckResult {
-	result := CheckResult{
-		Name:     name,
-		Required: required,
-		HelpText: helpText,
-	}
-
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return result
-	}
-
-	result.Found = true
-	result.Path = path
-
-	// Try to get version
-	result.Version = getCommandVersion(name)
-
-	return result
-}
-
-// checkPkgConfig checks metadata and compiles/links a probe for known libraries.
-func checkPkgConfig(name string, required bool) CheckResult { //nolint:unparam // required kept for API consistency
-	result := CheckResult{
-		Name:     name + " (lib)",
-		Required: required,
-		HelpText: fmt.Sprintf("Install %s development package", name),
-	}
-
-	cmd := exec.Command("pkg-config", "--exists", name)
-	if err := cmd.Run(); err != nil {
-		return result
-	}
-
-	// Get version
-	cmd = exec.Command("pkg-config", "--modversion", name)
-	if output, err := cmd.Output(); err == nil {
-		result.Version = strings.TrimSpace(string(output))
-	}
-
-	cmd = exec.Command("pkg-config", "--variable=pcfiledir", name)
-	if output, err := cmd.Output(); err == nil {
-		if dir := strings.TrimSpace(string(output)); dir != "" {
-			result.Path = filepath.Join(dir, name+".pc")
-		}
-	}
-
-	if err := checkLibraryLink(name); err != nil {
-		result.Problem = err.Error()
-		result.HelpText += "; check the pkg-config file and CC/CPPFLAGS/CFLAGS/LDFLAGS environment"
-		return result
-	}
-	result.Found = true
-
-	return result
-}
-
-// checkHeader checks if a C header file is available.
-func checkHeader(name, header string, required bool, helpText string) CheckResult {
-	result := CheckResult{
-		Name:     name + " (lib)",
-		Required: required,
-		HelpText: helpText,
-	}
-
-	// Common include paths to check
-	includePaths := []string{
-		"/usr/include",
-		"/usr/local/include",
-		"/opt/homebrew/include",
-	}
-
-	for _, path := range includePaths {
-		headerPath := path + "/" + header
-		if _, err := exec.Command("test", "-f", headerPath).CombinedOutput(); err == nil {
-			result.Found = true
-			result.Path = headerPath
-			return result
-		}
-	}
-
-	return result
-}
-
-// getCommandVersion tries to get the version of a command.
-func getCommandVersion(name string) string {
-	versionFlags := []string{"--version", "-v", "-V", "version"}
-
-	for _, flag := range versionFlags {
-		cmd := exec.Command(name, flag)
-		output, err := cmd.CombinedOutput()
-		if err == nil {
-			lines := strings.Split(string(output), "\n")
-			if len(lines) > 0 {
-				// Extract version number from first line
-				line := strings.TrimSpace(lines[0])
-				// Try to find version pattern
-				parts := strings.Fields(line)
-				for _, part := range parts {
-					if isVersionLike(part) {
-						return part
-					}
-				}
-				return line
-			}
-		}
-	}
-
-	return ""
-}
-
-// isVersionLike checks if a string looks like a version number.
-func isVersionLike(s string) bool {
-	if len(s) == 0 {
-		return false
-	}
-	// Check if starts with digit
-	if s[0] < '0' || s[0] > '9' {
-		return false
-	}
-	// Check if contains a dot
-	return strings.Contains(s, ".")
+// checkPkgConfig is also used by isolated library regression tests.
+func checkPkgConfig(name string, required bool) CheckResult {
+	return checkLibrary(context.Background(), toolchain.Current(), probeFor(name), required)
 }
 
 // getInstallHint returns installation instructions for a dependency.
@@ -313,24 +171,7 @@ func detectLinuxDistro() string {
 }
 
 func getDebianHint(name string) string {
-	packages := map[string]string{
-		"make":       "build-essential",
-		"cc":         "build-essential",
-		"autoconf":   "autoconf",
-		"bison":      "bison",
-		"re2c":       "re2c",
-		"pkg-config": "pkg-config",
-		"tar":        "tar",
-		"openssl":    "libssl-dev",
-		"libcurl":    "libcurl4-openssl-dev",
-		"zlib":       "zlib1g-dev",
-		"libxml-2.0": "libxml2-dev",
-	}
-
-	if pkg, ok := packages[name]; ok {
-		return fmt.Sprintf("sudo apt-get install %s", pkg)
-	}
-	return fmt.Sprintf("sudo apt-get install %s", name)
+	return fmt.Sprintf("sudo apt-get install %s", getPackageName(name, "debian"))
 }
 
 func getFedoraHint(name string) string {
@@ -424,6 +265,7 @@ func getPackageName(name, distro string) string {
 		"bzip2":      "libbz2-dev",
 		"sqlite3":    "libsqlite3-dev",
 		"oniguruma":  "libonig-dev",
+		"icu-uc":     "libicu-dev", "libpng": "libpng-dev", "libjpeg": "libjpeg-dev", "freetype2": "libfreetype6-dev", "gmp": "libgmp-dev", "iconv": "libc6-dev", "gettext": "gettext", "libpq": "libpq-dev", "libsodium": "libsodium-dev", "libxslt": "libxslt1-dev", "libzip": "libzip-dev",
 	}
 
 	fedoraPackages := map[string]string{
@@ -445,6 +287,7 @@ func getPackageName(name, distro string) string {
 		"bzip2":      "bzip2-devel",
 		"sqlite3":    "sqlite-devel",
 		"oniguruma":  "oniguruma-devel",
+		"icu-uc":     "libicu-devel", "libpng": "libpng-devel", "libjpeg": "libjpeg-turbo-devel", "freetype2": "freetype-devel", "gmp": "gmp-devel", "iconv": "glibc-devel", "gettext": "gettext-devel", "libpq": "libpq-devel", "libsodium": "libsodium-devel", "libxslt": "libxslt-devel", "libzip": "libzip-devel",
 	}
 
 	archPackages := map[string]string{
@@ -466,6 +309,7 @@ func getPackageName(name, distro string) string {
 		"bzip2":      "bzip2",
 		"sqlite3":    "sqlite",
 		"oniguruma":  "oniguruma",
+		"icu-uc":     "icu", "libpng": "libpng", "libjpeg": "libjpeg-turbo", "freetype2": "freetype2", "gmp": "gmp", "iconv": "glibc", "gettext": "gettext", "libpq": "postgresql-libs", "libsodium": "libsodium", "libxslt": "libxslt", "libzip": "libzip",
 	}
 
 	var packages map[string]string
@@ -509,7 +353,7 @@ func GetInstallCommand(result *DoctorResult) string {
 	// Collect unique packages
 	packageSet := make(map[string]bool)
 	for _, check := range result.Checks {
-		if !check.Found {
+		if needsPackage(check) {
 			pkg := getPackageName(check.Name, distro)
 			if pkg != "" {
 				packageSet[pkg] = true
@@ -563,11 +407,12 @@ func getMacOSInstallCommand(result *DoctorResult) string {
 		"libxml-2.0": "", // Built-in
 		"readline":   "readline",
 		"bz2":        "", // Built-in
+		"bzip2":      "", "icu-uc": "icu4c", "libpng": "libpng", "libjpeg": "jpeg", "freetype2": "freetype", "gmp": "gmp", "iconv": "libiconv", "gettext": "gettext", "libpq": "libpq", "libsodium": "libsodium", "libxslt": "libxslt", "libzip": "libzip", "oniguruma": "oniguruma",
 	}
 
 	packages := make([]string, 0)
 	for _, check := range result.Checks {
-		if !check.Found {
+		if needsPackage(check) {
 			cleanName := check.Name
 			if len(cleanName) > 6 && cleanName[len(cleanName)-6:] == " (lib)" {
 				cleanName = cleanName[:len(cleanName)-6]
@@ -596,6 +441,10 @@ func FormatResults(result *DoctorResult) string {
 
 	sb.WriteString("System Requirements Check\n")
 	sb.WriteString("=========================\n\n")
+	if result.PHPVersion != "" {
+		fmt.Fprintf(&sb, "PHP %s; profile: %s\n\n", result.PHPVersion, result.Profile)
+	}
+	sb.WriteString(result.Environment)
 
 	for _, check := range result.Checks {
 		status := "✓"
@@ -606,11 +455,21 @@ func FormatResults(result *DoctorResult) string {
 				status = "!"
 			}
 		}
+		if check.Deferred {
+			status = "→"
+		}
 
 		_, _ = fmt.Fprintf(&sb, "%s %s", status, check.Name)
+		if check.Deferred {
+			fmt.Fprintf(&sb, " - DEFERRED: %s\n", check.HelpText)
+			continue
+		}
 		if check.Found {
 			if check.Version != "" {
 				_, _ = fmt.Fprintf(&sb, " (%s)", check.Version)
+			}
+			if check.Path != "" {
+				fmt.Fprintf(&sb, " [%s]", check.Path)
 			}
 			sb.WriteString("\n")
 		} else {
@@ -618,7 +477,11 @@ func FormatResults(result *DoctorResult) string {
 				sb.WriteString(" - UNUSABLE\n")
 				sb.WriteString("    " + strings.ReplaceAll(check.Problem, "\n", "\n    ") + "\n")
 				if check.Path != "" {
-					_, _ = fmt.Fprintf(&sb, "    pkg-config file: %s\n", check.Path)
+					label := "selected path"
+					if strings.HasSuffix(check.Path, ".pc") {
+						label = "pkg-config file"
+					}
+					_, _ = fmt.Fprintf(&sb, "    %s: %s\n", label, check.Path)
 				}
 			} else {
 				sb.WriteString(" - NOT FOUND\n")
@@ -630,16 +493,25 @@ func FormatResults(result *DoctorResult) string {
 	}
 
 	sb.WriteString("\n")
+	for _, check := range result.Checks {
+		if check.Problem != "" && check.ProblemKind != "version" {
+			sb.WriteString("Check toolchain selection: PATH, CC, PKG_CONFIG, selected .pc files, CPPFLAGS/CFLAGS/LDFLAGS/LIBS. A Homebrew/system toolchain mix or stale /usr/local metadata can cause this; reinstalling packages alone may not fix it.\n\n")
+			break
+		}
+	}
 
-	if result.AllOK && result.Warnings == 0 {
-		sb.WriteString("All dependencies are installed!\n")
+	if result.AllOK && result.Warnings == 0 && result.Deferred == 0 {
+		sb.WriteString("All required build checks passed!\n")
 	} else if result.AllOK {
-		sb.WriteString("All required dependencies are installed!\n")
+		sb.WriteString("All checked required dependencies are usable.\n")
 		if result.Warnings > 0 {
 			_, _ = fmt.Fprintf(&sb, "Optional missing or unusable: %d\n", result.Warnings)
 		}
 	} else {
 		_, _ = fmt.Fprintf(&sb, "Missing or unusable: %d required, %d optional\n", result.Errors, result.Warnings)
+	}
+	if result.Deferred > 0 {
+		fmt.Fprintf(&sb, "Deferred private libraries: %d (checked by configure after phvm builds them)\n", result.Deferred)
 	}
 
 	// Add install command suggestion if anything is missing
@@ -650,5 +522,5 @@ func FormatResults(result *DoctorResult) string {
 		}
 	}
 
-	return sb.String()
+	return redact.Text(sb.String())
 }

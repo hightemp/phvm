@@ -77,6 +77,60 @@ func TestSaveMetadataRejectsUnsafeVersion(t *testing.T) {
 	}
 }
 
+func TestConfigureFailureReportsToolchain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX configure fixture")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "configure"), []byte("#!/bin/sh\necho 'bad linker' >&2\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PKG_CONFIG", "/fixture/custom-pkg-config")
+	t.Setenv("CPPFLAGS", "-DFIXTURE_CPP")
+	b := &Builder{profile: MinimalProfile()}
+	err := b.configure(context.Background(), "8.5.11", dir, dir, filepath.Join(dir, "install"))
+	if err == nil {
+		t.Fatal("configure unexpectedly passed")
+	}
+	for _, evidence := range []string{"PKG_CONFIG=/fixture/custom-pkg-config", "CPPFLAGS=-DFIXTURE_CPP", "CC=", "PATH="} {
+		if !strings.Contains(err.Error(), evidence) {
+			t.Errorf("configure error omits %s: %s", evidence, err)
+		}
+	}
+}
+
+func TestMakeInstallUsesPrivateDependencyEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX make fixture")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make unavailable")
+	}
+	p := core.NewPaths(t.TempDir())
+	include := filepath.Join(p.Root, "deps", "7.4.33", "openssl", "include")
+	if err := os.MkdirAll(include, 0755); err != nil {
+		t.Fatal(err)
+	}
+	buildDir := filepath.Join(p.Root, "build")
+	if err := os.MkdirAll(buildDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(buildDir, "Makefile"), []byte("install:\n\t@printf '%s' \"$$CPPFLAGS\" > captured-cppflags\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CPPFLAGS", "-DINSTALL_CPP")
+	if err := NewBuilder(p, nil).install(context.Background(), "7.4.33", buildDir, p.VersionDir("7.4.33")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(buildDir, "captured-cppflags"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "-I"+include) || !strings.Contains(string(data), "-DINSTALL_CPP") {
+		t.Errorf("make install changed the compile environment: %s", data)
+	}
+}
+
 func TestSaveMetadataUsesActualVerification(t *testing.T) {
 	for _, tt := range []struct {
 		name   string

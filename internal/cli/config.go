@@ -122,7 +122,7 @@ func applyConfigFlags(cmd *cobra.Command, cfg *core.Config) error {
 		}
 		cfg.Verify.GPG = !value
 	}
-	if cmd.Flags().Changed("configure") && (cmd == installCmd || cmd == configShowCmd || cmd == configValidateCmd) {
+	if cmd.Flags().Changed("configure") && (cmd == installCmd || cmd == doctorCmd || cmd == configShowCmd || cmd == configValidateCmd) {
 		value, err := cmd.Flags().GetString("configure")
 		if err != nil {
 			return err

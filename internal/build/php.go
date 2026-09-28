@@ -18,6 +18,7 @@ import (
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/remote"
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 // Builder builds PHP from source.
@@ -146,7 +147,7 @@ func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// Install
-	if err := b.install(ctx, buildDir, installDir); err != nil {
+	if err := b.install(ctx, version, buildDir, installDir); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}
 
@@ -220,14 +221,9 @@ func (b *Builder) extract(ctx context.Context, tarballPath, sourceDir string) er
 	return nil
 }
 
-// configure runs ./configure with the appropriate flags.
-func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, installDir string) error {
-	log.Info("Configuring...")
-
-	// Merge profile and custom flags
+// ConfigureFlags returns the same merged options used by configure and doctor.
+func (b *Builder) ConfigureFlags(version string) []string {
 	flags := MergeFlags(b.profile, b.customFlags)
-
-	// Add dependency-specific configure flags
 	if deps.NeedsDeps(version) {
 		depsFlags := b.depsManager.GetConfigureFlags(version)
 		if len(depsFlags) > 0 {
@@ -235,6 +231,21 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 			flags = MergeFlags(&Profile{Flags: flags}, depsFlags)
 		}
 	}
+	return flags
+}
+
+// Environment snapshots configure's environment, including private dependencies.
+func (b *Builder) Environment(version string) toolchain.Environment {
+	if deps.NeedsDeps(version) {
+		return toolchain.Current(b.depsManager.GetBuildEnv(version)...)
+	}
+	return toolchain.Current()
+}
+
+// configure runs ./configure with the appropriate flags.
+func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, installDir string) error {
+	log.Info("Configuring...")
+	flags := b.ConfigureFlags(version)
 
 	// Add prefix
 	flags = append([]string{"--prefix=" + installDir}, flags...)
@@ -255,15 +266,8 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	cmd.Dir = buildDir
 
 	// Set environment with dependency paths
-	env := os.Environ()
-	if deps.NeedsDeps(version) {
-		depsEnv := b.depsManager.GetBuildEnv(version)
-		if len(depsEnv) > 0 {
-			log.Debug("Adding dependency env: %v", depsEnv)
-			env = append(env, depsEnv...)
-		}
-	}
-	cmd.Env = env
+	env := b.Environment(version)
+	cmd.Env = []string(env)
 
 	var tail configureOutputTail
 	var output io.Writer = &tail
@@ -288,7 +292,7 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 		if fsutil.Exists(configLog) {
 			details += "\nSee " + configLog + " for compiler/linker details"
 		}
-		return fmt.Errorf("configure failed: %w%s", err, details)
+		return fmt.Errorf("configure failed: %w%s\n%s", err, redact.Text(details), env.Describe(ctx))
 	}
 
 	return nil
@@ -337,14 +341,7 @@ func (b *Builder) make(ctx context.Context, version, buildDir string) error {
 	cmd.Dir = buildDir
 
 	// Set environment with dependency paths
-	env := os.Environ()
-	if deps.NeedsDeps(version) {
-		depsEnv := b.depsManager.GetBuildEnv(version)
-		if len(depsEnv) > 0 {
-			env = append(env, depsEnv...)
-		}
-	}
-	cmd.Env = env
+	cmd.Env = []string(b.Environment(version))
 
 	if b.logWriter != nil {
 		cmd.Stdout = b.logWriter
@@ -362,7 +359,7 @@ func (b *Builder) make(ctx context.Context, version, buildDir string) error {
 }
 
 // install runs make install.
-func (b *Builder) install(ctx context.Context, buildDir, installDir string) error {
+func (b *Builder) install(ctx context.Context, version, buildDir, installDir string) error {
 	log.Info("Installing...")
 
 	// Ensure install directory exists
@@ -372,7 +369,7 @@ func (b *Builder) install(ctx context.Context, buildDir, installDir string) erro
 
 	cmd := exec.CommandContext(ctx, "make", "install")
 	cmd.Dir = buildDir
-	cmd.Env = os.Environ()
+	cmd.Env = []string(b.Environment(version))
 
 	if b.logWriter != nil {
 		cmd.Stdout = b.logWriter

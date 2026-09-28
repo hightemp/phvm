@@ -2,9 +2,12 @@
 package build
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 // Profile represents a build profile with configure flags.
@@ -213,7 +216,12 @@ func FilterFlagsForVersion(flags []string, phpVersion string) []string {
 
 // hasOpenSSL3 checks if the system has OpenSSL 3.x.
 func hasOpenSSL3() bool {
-	cmd := exec.Command("pkg-config", "--modversion", "openssl")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd, err := toolchain.Current().Command(ctx, "PKG_CONFIG", "pkg-config", "--modversion", "openssl")
+	if err != nil {
+		return false
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return false

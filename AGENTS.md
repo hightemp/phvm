@@ -215,6 +215,7 @@ phvm/
 │   ├── shell/                # Shell init scripts
 │   ├── composer/             # Composer installation
 │   ├── doctor/               # Dependency checking
+│   ├── toolchain/            # Shared build environment and command parsing
 │   └── log/                  # Structured logging
 ├── scripts/                  # Install scripts (bash, PowerShell)
 ├── Makefile                  # Build automation

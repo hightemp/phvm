@@ -20,6 +20,7 @@ import (
 )
 
 func TestInstallMetadataRecordsDisabledGPG(t *testing.T) {
+	withoutConfigEnv(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("configure fixture requires POSIX tools")
 	}
@@ -77,6 +78,7 @@ func TestInstallMetadataRecordsDisabledGPG(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v\n%s", err, out)
 	}
+	fakeBuildTools(t)
 	cmd := exec.Command(bin, "--phvm-dir", p.Root, "install", "8.5.11", "--jobs", "1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install fixture: %v\n%s", err, out)

@@ -114,6 +114,18 @@ func runInstall(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Check the selected build environment before downloading source/dependencies.
+	requirements, err := doctor.CheckFor(ctx, doctor.Options{PHPVersion: version, Profile: effectiveConfig.General.DefaultProfile, CustomFlags: effectiveConfig.Build.DefaultFlags, Paths: paths, GPGRequired: effectiveConfig.Verify.GPG && !effectiveConfig.Verify.GPGFallbackSHA256})
+	if err != nil {
+		log.Error("Build requirements: %v", err)
+		os.Exit(1)
+	}
+	if !requirements.AllOK {
+		log.Print("%s", doctor.FormatResults(requirements))
+		log.Error("Build requirements check failed before source download")
+		os.Exit(1)
+	}
+
 	// Get tarball info
 	tarball, err := api.GetTarballInfo(ctx, version)
 	if err != nil {

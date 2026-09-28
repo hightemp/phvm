@@ -32,6 +32,7 @@ func TestInstallAppliesConfiguration(t *testing.T) {
 	}
 	withoutConfigEnv(t)
 	bin := buildTestCLI(t)
+	fakeBuildTools(t)
 	for _, tt := range []struct {
 		name                string
 		env                 map[string]string

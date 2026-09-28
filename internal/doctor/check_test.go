@@ -27,6 +27,7 @@ func TestCheckPkgConfigLinksLibrary(t *testing.T) {
 		header      bool
 		library     string
 		useLDFlags  bool
+		useLIBS     bool
 		wantFound   bool
 		wantProblem string
 	}{
@@ -35,6 +36,7 @@ func TestCheckPkgConfigLinksLibrary(t *testing.T) {
 		{name: "missing symbol", header: true, library: "int unrelated(void) { return 0; }", wantProblem: "curl_easy_init"},
 		{name: "usable library with spaces in path", header: true, library: "void *curl_easy_init(void) { return 0; }", wantFound: true},
 		{name: "linker flags from environment", header: true, library: "void *curl_easy_init(void) { return 0; }", useLDFlags: true, wantFound: true},
+		{name: "LIBS from configure environment", header: true, library: "void *curl_easy_init(void) { return 0; }", useLIBS: true, wantFound: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "library with spaces")
@@ -51,6 +53,8 @@ func TestCheckPkgConfigLinksLibrary(t *testing.T) {
 			t.Setenv("CPPFLAGS", "")
 			t.Setenv("CFLAGS", "")
 			t.Setenv("LDFLAGS", "")
+			t.Setenv("LIBS", "")
+			t.Setenv("PKG_CONFIG", "")
 			t.Setenv("PKG_CONFIG_PATH", pcDir)
 			t.Setenv("PKG_CONFIG_LIBDIR", pcDir)
 			t.Setenv("PKG_CONFIG_SYSROOT_DIR", "")
@@ -78,6 +82,10 @@ func TestCheckPkgConfigLinksLibrary(t *testing.T) {
 			if tt.useLDFlags {
 				libs = "-lphvm_doctor_curl"
 				t.Setenv("LDFLAGS", "-L"+strconv.Quote(libDir))
+			}
+			if tt.useLIBS {
+				libs = "-lphvm_doctor_curl"
+				t.Setenv("LIBS", "-L"+strconv.Quote(libDir))
 			}
 			writeTestFile(t, filepath.Join(pcDir, "libcurl.pc"), "prefix="+root+"\n"+
 				"Name: libcurl\nDescription: doctor test fixture\nVersion: 8.4.0\n"+

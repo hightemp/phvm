@@ -154,7 +154,7 @@ leaves the previous current version intact.
 
 | Command | Description |
 |---------|-------------|
-| `phvm doctor` | Check build dependencies |
+| `phvm doctor --php 8.5.11 --profile common` | Check tools and libraries for the selected PHP build |
 | `phvm composer install` | Install Composer |
 | `phvm cache clean` | Clear download cache |
 | `phvm init <shell>` | Print shell init script |
@@ -248,7 +248,7 @@ nested schema above. There is no silent fallback for a broken configuration.
 
 | Setting | CLI override | Valid values / behavior |
 |---------|--------------|-------------------------|
-| `general.default_profile` | `install --profile` | `minimal`, `common`, `full`; default PHP build profile |
+| `general.default_profile` | `install --profile`, `doctor --profile` | `minimal`, `common`, `full`; default PHP build profile |
 | `general.parallel_jobs` | `install --jobs`, `ext install --jobs` | Nonnegative integer; `0` selects the builder default (PHP: half the CPUs, minimum 1; PECL: 2) |
 | `general.color` | `--no-color[=false]` | Boolean; `--no-color` disables color, `--no-color=false` enables it |
 | `remote.mirror` | `--mirror` | Absolute HTTP(S) base URL without query/fragment; PHP API and source downloads |
@@ -258,7 +258,7 @@ nested schema above. There is no silent fallback for a broken configuration.
 | `verify.sha256` | None | Must be `true`; SHA256 is mandatory |
 | `verify.gpg` | `--gpg`, `install --skip-gpg` | Boolean; PHP signature verification |
 | `verify.gpg_fallback_sha256` | `--gpg-fallback-sha256` | Boolean; permit unavailable GPG verification only after successful SHA256 |
-| `build.default_flags` | `install --configure` | Array of nonempty, single-line PHP configure arguments |
+| `build.default_flags` | `install --configure`, `doctor --configure` | Array of nonempty, single-line PHP configure arguments |
 
 Environment variables are listed below. `PHVM_CONFIGURE_FLAGS` replaces the
 TOML flags array; explicit `--configure` arguments are merged over it, replacing
@@ -397,18 +397,52 @@ make test-release
 
 ## PHP Build Requirements
 
-Before installing PHP, ensure you have the required build dependencies:
+Check the version and profile you intend to build:
 
 ```bash
-# Check what's needed
-phvm doctor
+phvm doctor --php 8.5.11 --profile common
+phvm doctor --php 8.5 --profile minimal
+phvm doctor --php 8.5.11 --profile common --configure="--without-curl"
 ```
 
-For libraries discovered through `pkg-config`, `doctor` compiles and links a
-small C program using `CC`, `CPPFLAGS`, `CFLAGS`, and `LDFLAGS`. It does not run
-the program. A `.pc` file alone is not enough: missing headers, libraries, or
-linker dependencies are reported as `UNUSABLE`, with the compiler error and
-the selected `.pc` file path.
+`--php` accepts an uninstalled `X.Y` branch or `X.Y.Z` release without contacting
+php.net; it defaults to the PHP 8.3 baseline. A branch checks that branch's
+requirements; use a full release to inspect its existing private dependency
+directory. The profile and configure flags follow the configuration precedence
+above. `minimal` disables default extensions; enabling an extension through
+`--configure` adds its dependencies to the check. `common` requires its selected
+curl/OpenSSL/zlib/XML/mbstring/bzip2/readline/SQLite/iconv libraries; `full` also
+checks GD, ICU/C++, GMP, gettext, PostgreSQL, sodium, XSL and ZIP dependencies.
+
+An unusable or missing required tool/library returns exit code **1**. Optional
+tools produce warnings. `install` runs the same checks after version resolution
+and before downloading PHP source or building dependencies; an already installed
+version is left alone unless `--force` is requested.
+
+Doctor prints `CC`, its executable/symlink target, the linker reported by the
+compiler, `CXX`, `PKG_CONFIG`, selected `.pc` paths, `PATH`, compiler/linker flags
+and pkg-config search variables. It uses the builder's merged configure flags
+and environment, including existing private dependencies. Library checks compile
+and link a small C program, including bzip2 (`BZ2_bzlibVersion`); they never run
+the resulting program. A `.pc` file alone is not enough. Missing headers,
+symbols, libraries and linker dependencies are reported as `UNUSABLE` with the
+compiler error. Toolchain conflicts receive a selection/flags hint; they are
+excluded from the automatic missing-package command.
+
+The version checks follow PHP's configure requirements. Examples include libcurl
+7.29.0 for PHP 8.3 and 7.61.0 for PHP 8.4+, libxml 2.9.4/OpenSSL 1.1.1/zlib 1.2.11
+for PHP 8.4+, SQLite 3.7.17 and ICU 57.1 for PHP 8.5. Known unsupported libzip
+versions 1.3.1 and 1.7.0 are rejected. Sources: [PHP cURL requirements](https://www.php.net/manual/en/curl.requirements.php),
+[PHP 8.3 configure macros](https://github.com/php/php-src/blob/PHP-8.3/build/php.m4),
+[PHP 8.3 cURL configure](https://github.com/php/php-src/blob/PHP-8.3/ext/curl/config.m4),
+[PHP 8.5 configure macros](https://github.com/php/php-src/blob/PHP-8.5/build/php.m4),
+[ZIP configure](https://github.com/php/php-src/blob/PHP-8.5/ext/zip/config.m4).
+
+Explicit library `*_CFLAGS`/`*_LIBS` pairs (for example `CURL_CFLAGS` and
+`CURL_LIBS`) are honored as PHP configure does: the link probe uses them and
+reports that pkg-config version metadata was bypassed. For older PHP releases,
+not-yet-built private OpenSSL/curl are shown as **DEFERRED**; PHP configure checks
+them after phvm builds them. Doctor does not build or download those libraries.
 
 ### Ubuntu/Debian
 
@@ -493,6 +527,11 @@ Empty configuration environment variables are treated as unset. Use `true` or
 ### Build fails with missing dependencies
 
 Run `phvm doctor` to identify missing dependencies, then install them using your package manager.
+
+Use `phvm doctor --php 8.5.11 --profile common` to check the intended build.
+When an existing library is `UNUSABLE`, inspect the reported compiler, linker,
+`.pc` file and flags before installing packages again. The command does not change
+your shell or system configuration.
 
 When `configure` fails, phvm prints the last output lines and the path to
 `config.log`, which contains the compiler and linker errors. The full output

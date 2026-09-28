@@ -13,6 +13,7 @@ import (
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 // Dependency represents a library dependency.
@@ -258,7 +259,7 @@ func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir str
 
 	// Install
 	log.Info("Installing %s...", dep.Name)
-	if err := m.install(ctx, sourceDir); err != nil {
+	if err := m.install(ctx, dep, sourceDir, depsDir); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}
 
@@ -306,6 +307,42 @@ func (m *DepsManager) extract(ctx context.Context, tarballPath, destDir string) 
 	return nil
 }
 
+// dependencyEnvironment prepends private paths while preserving each user flag.
+func dependencyEnvironment(names []string, depsDir string) toolchain.Environment {
+	var includes, libraries, pkgPaths []string
+	for _, name := range names {
+		prefix := filepath.Join(depsDir, name)
+		if dir := filepath.Join(prefix, "include"); fsutil.Exists(dir) {
+			includes = append(includes, "-I"+dir)
+		}
+		if dir := filepath.Join(prefix, "lib"); fsutil.Exists(dir) {
+			libraries = append(libraries, "-L"+dir)
+		}
+		if dir := filepath.Join(prefix, "lib", "pkgconfig"); fsutil.Exists(dir) {
+			pkgPaths = append(pkgPaths, dir)
+		}
+	}
+	base := toolchain.Current()
+	var overrides []string
+	for _, item := range []struct {
+		key       string
+		flags     []string
+		separator string
+	}{
+		{"CPPFLAGS", includes, " "}, {"CFLAGS", includes, " "}, {"LDFLAGS", libraries, " "}, {"PKG_CONFIG_PATH", pkgPaths, string(os.PathListSeparator)},
+	} {
+		if len(item.flags) == 0 {
+			continue
+		}
+		value := strings.Join(item.flags, item.separator)
+		if existing := base.Value(item.key, ""); existing != "" {
+			value += item.separator + existing
+		}
+		overrides = append(overrides, item.key+"="+value)
+	}
+	return toolchain.Current(overrides...)
+}
+
 // configure runs configure for a dependency.
 func (m *DepsManager) configure(ctx context.Context, dep Dependency, sourceDir, prefix, depsDir string) error {
 	args := make([]string, len(dep.ConfigureCmd))
@@ -318,45 +355,7 @@ func (m *DepsManager) configure(ctx context.Context, dep Dependency, sourceDir, 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = sourceDir
 
-	// Set up environment with paths to already-built dependencies
-	env := os.Environ()
-	var pkgConfigPaths []string
-	var ldflags []string
-	var cflags []string
-
-	for _, depName := range dep.DependsOn {
-		depPrefix := filepath.Join(depsDir, depName)
-		pkgConfigDir := filepath.Join(depPrefix, "lib", "pkgconfig")
-		if fsutil.Exists(pkgConfigDir) {
-			pkgConfigPaths = append(pkgConfigPaths, pkgConfigDir)
-		}
-		libDir := filepath.Join(depPrefix, "lib")
-		if fsutil.Exists(libDir) {
-			ldflags = append(ldflags, "-L"+libDir)
-		}
-		includeDir := filepath.Join(depPrefix, "include")
-		if fsutil.Exists(includeDir) {
-			cflags = append(cflags, "-I"+includeDir)
-		}
-	}
-
-	if len(pkgConfigPaths) > 0 {
-		existingPkgConfig := os.Getenv("PKG_CONFIG_PATH")
-		newPath := strings.Join(pkgConfigPaths, ":")
-		if existingPkgConfig != "" {
-			newPath = newPath + ":" + existingPkgConfig
-		}
-		env = append(env, "PKG_CONFIG_PATH="+newPath)
-	}
-	if len(ldflags) > 0 {
-		env = append(env, "LDFLAGS="+strings.Join(ldflags, " "))
-	}
-	if len(cflags) > 0 {
-		env = append(env, "CFLAGS="+strings.Join(cflags, " "))
-		env = append(env, "CPPFLAGS="+strings.Join(cflags, " "))
-	}
-
-	cmd.Env = env
+	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -370,32 +369,7 @@ func (m *DepsManager) makeDep(ctx context.Context, dep Dependency, sourceDir, de
 	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", m.jobs))
 	cmd.Dir = sourceDir
 
-	// Set up environment with paths to already-built dependencies
-	env := os.Environ()
-	var ldflags []string
-	var cflags []string
-
-	for _, depName := range dep.DependsOn {
-		depPrefix := filepath.Join(depsDir, depName)
-		libDir := filepath.Join(depPrefix, "lib")
-		if fsutil.Exists(libDir) {
-			ldflags = append(ldflags, "-L"+libDir)
-		}
-		includeDir := filepath.Join(depPrefix, "include")
-		if fsutil.Exists(includeDir) {
-			cflags = append(cflags, "-I"+includeDir)
-		}
-	}
-
-	if len(ldflags) > 0 {
-		env = append(env, "LDFLAGS="+strings.Join(ldflags, " "))
-	}
-	if len(cflags) > 0 {
-		env = append(env, "CFLAGS="+strings.Join(cflags, " "))
-		env = append(env, "CPPFLAGS="+strings.Join(cflags, " "))
-	}
-
-	cmd.Env = env
+	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -405,10 +379,10 @@ func (m *DepsManager) makeDep(ctx context.Context, dep Dependency, sourceDir, de
 }
 
 // install runs make install.
-func (m *DepsManager) install(ctx context.Context, sourceDir string) error {
+func (m *DepsManager) install(ctx context.Context, dep Dependency, sourceDir, depsDir string) error {
 	cmd := exec.CommandContext(ctx, "make", "install")
 	cmd.Dir = sourceDir
-	cmd.Env = os.Environ()
+	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -603,7 +577,11 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 			newCflags = newCflags + " " + existingCflags
 		}
 		env = append(env, "CFLAGS="+newCflags)
-		env = append(env, "CPPFLAGS="+newCflags)
+		newCPPFlags := strings.Join(cflags, " ")
+		if existing := os.Getenv("CPPFLAGS"); existing != "" {
+			newCPPFlags += " " + existing
+		}
+		env = append(env, "CPPFLAGS="+newCPPFlags)
 	}
 
 	if len(libs) > 0 {

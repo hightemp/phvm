@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/hightemp/phvm/internal/composer"
-	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
 )
 
@@ -38,14 +37,11 @@ var composerInstallCmd = &cobra.Command{
 				os.Exit(1)
 			}
 		} else {
-			if phpVersion == "" {
-				current := core.NewCurrentManager(paths)
-				version, err := current.Get()
-				if err != nil {
-					log.Error("No current version set")
-					os.Exit(1)
-				}
-				phpVersion = version
+			var resolveErr error
+			phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+			if resolveErr != nil {
+				log.Error("Failed to resolve installed PHP: %v", resolveErr)
+				os.Exit(1)
 			}
 
 			if err := mgr.Install(cmd.Context(), phpVersion); err != nil {
@@ -64,14 +60,11 @@ var composerUpdateCmd = &cobra.Command{
 		mgr := composer.NewManager(paths)
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		if err := mgr.Update(cmd.Context(), phpVersion); err != nil {
@@ -89,14 +82,11 @@ var composerEnableCmd = &cobra.Command{
 		mgr := composer.NewManager(paths)
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		if err := mgr.Enable(phpVersion); err != nil {
@@ -114,14 +104,11 @@ var composerDisableCmd = &cobra.Command{
 		mgr := composer.NewManager(paths)
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		if err := mgr.Disable(phpVersion); err != nil {
@@ -138,9 +125,9 @@ func init() {
 	composerCmd.AddCommand(composerDisableCmd)
 
 	composerInstallCmd.Flags().Bool("global", false, "Install globally (shared by all versions)")
-	composerInstallCmd.Flags().String("php", "", "PHP version (default: current)")
+	composerInstallCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
 
-	composerUpdateCmd.Flags().String("php", "", "PHP version (default: current)")
-	composerEnableCmd.Flags().String("php", "", "PHP version (default: current)")
-	composerDisableCmd.Flags().String("php", "", "PHP version (default: current)")
+	composerUpdateCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
+	composerEnableCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
+	composerDisableCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
 }

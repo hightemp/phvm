@@ -48,3 +48,11 @@ func getVerifier(paths *core.Paths, client *remote.Client) *remote.Verifier {
 func ensureDirectories(paths *core.Paths) error {
 	return paths.EnsureDirectories()
 }
+
+// resolvePHPVersion shares local resolution across --php command flags.
+func resolvePHPVersion(paths *core.Paths, input string) (string, error) {
+	if input == "" {
+		return core.NewCurrentManager(paths).Get()
+	}
+	return core.NewInstalledManager(paths).Resolve(input)
+}

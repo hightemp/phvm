@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/ext"
 	"github.com/hightemp/phvm/internal/log"
 )
@@ -32,14 +31,11 @@ var extListCmd = &cobra.Command{
 		paths := GetPaths()
 		phpVersion, _ := cmd.Flags().GetString("php")
 
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		extensions, err := ext.ListInstalled(paths, phpVersion)
@@ -128,14 +124,11 @@ Examples:
 		configure, _ := cmd.Flags().GetString("configure")
 		jobs, _ := cmd.Flags().GetInt("jobs")
 
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		client := getClient(paths)
@@ -170,14 +163,11 @@ var extUninstallCmd = &cobra.Command{
 		paths := GetPaths()
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		client := getClient(paths)
@@ -199,14 +189,11 @@ var extEnableCmd = &cobra.Command{
 		paths := GetPaths()
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		if err := ext.Enable(paths, phpVersion, extName); err != nil {
@@ -227,14 +214,11 @@ var extDisableCmd = &cobra.Command{
 		paths := GetPaths()
 
 		phpVersion, _ := cmd.Flags().GetString("php")
-		if phpVersion == "" {
-			current := core.NewCurrentManager(paths)
-			version, err := current.Get()
-			if err != nil {
-				log.Error("No current version set")
-				os.Exit(1)
-			}
-			phpVersion = version
+		var resolveErr error
+		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
+		if resolveErr != nil {
+			log.Error("Failed to resolve installed PHP: %v", resolveErr)
+			os.Exit(1)
 		}
 
 		if err := ext.Disable(paths, phpVersion, extName); err != nil {
@@ -256,7 +240,7 @@ func init() {
 
 	// Common flags
 	for _, c := range []*cobra.Command{extListCmd, extInstallCmd, extUninstallCmd, extEnableCmd, extDisableCmd} {
-		c.Flags().String("php", "", "PHP version (default: current)")
+		c.Flags().String("php", "", "Installed PHP version or alias (default: current)")
 	}
 
 	extListRemoteCmd.Flags().String("search", "", "Search for extensions")

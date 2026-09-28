@@ -29,41 +29,34 @@ var (
 
 // ParseVersion parses a version string into a Version struct.
 func ParseVersion(s string) (*Version, error) {
-	s = strings.TrimPrefix(s, "v")
-	s = strings.TrimPrefix(s, "php-")
 	s = strings.TrimSpace(s)
-
-	if s == "" {
-		return nil, fmt.Errorf("empty version string")
+	if strings.HasPrefix(s, "php-") {
+		s = strings.TrimPrefix(s, "php-")
+	} else {
+		s = strings.TrimPrefix(s, "v")
 	}
-
-	v := &Version{Raw: s}
-
-	// Try full version first
-	if m := versionRegexFull.FindStringSubmatch(s); m != nil {
-		v.Major, _ = strconv.Atoi(m[1])
-		v.Minor, _ = strconv.Atoi(m[2])
-		v.Patch, _ = strconv.Atoi(m[3])
-		return v, nil
+	var parts []string
+	for _, pattern := range []*regexp.Regexp{versionRegexFull, versionRegexMinor, versionRegexMajor} {
+		if match := pattern.FindStringSubmatch(s); match != nil {
+			parts = match[1:]
+			break
+		}
 	}
-
-	// Try minor version
-	if m := versionRegexMinor.FindStringSubmatch(s); m != nil {
-		v.Major, _ = strconv.Atoi(m[1])
-		v.Minor, _ = strconv.Atoi(m[2])
-		v.Patch = -1 // Indicates "any patch"
-		return v, nil
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("invalid version format: %s", s)
 	}
-
-	// Try major version
-	if m := versionRegexMajor.FindStringSubmatch(s); m != nil {
-		v.Major, _ = strconv.Atoi(m[1])
-		v.Minor = -1 // Indicates "any minor"
-		v.Patch = -1 // Indicates "any patch"
-		return v, nil
+	numbers := [3]int{0, -1, -1}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid version component: %w", err)
+		}
+		numbers[i] = n
 	}
-
-	return nil, fmt.Errorf("invalid version format: %s", s)
+	if numbers[0] == 0 {
+		return nil, fmt.Errorf("invalid PHP major version")
+	}
+	return &Version{Major: numbers[0], Minor: numbers[1], Patch: numbers[2], Raw: s}, nil
 }
 
 // String returns the version as a string.

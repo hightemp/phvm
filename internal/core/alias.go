@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,9 @@ import (
 type AliasManager struct {
 	paths *Paths
 }
+
+// ErrAliasNotFound distinguishes absent aliases from corrupt or unsafe storage.
+var ErrAliasNotFound = errors.New("alias not found")
 
 // NewAliasManager creates a new AliasManager.
 func NewAliasManager(paths *Paths) *AliasManager {
@@ -48,13 +52,16 @@ func (m *AliasManager) Get(name string) (string, error) {
 	}
 	root, err := m.paths.OpenDataDir(m.paths.Alias, false)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: %s", ErrAliasNotFound, name)
+		}
 		return "", err
 	}
 	defer root.Close()
 	data, err := root.ReadFile(name)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("alias not found: %s", name)
+			return "", fmt.Errorf("%w: %s", ErrAliasNotFound, name)
 		}
 		return "", fmt.Errorf("read alias file: %w", err)
 	}

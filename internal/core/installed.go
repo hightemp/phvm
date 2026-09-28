@@ -46,6 +46,10 @@ func (m *InstalledManager) List() ([]string, error) {
 		}
 
 		version := entry.Name()
+		canonical, err := NormalizeInstalledVersion(version)
+		if err != nil || canonical != version {
+			continue
+		}
 
 		// Verify it's a valid installation (has php binary)
 		if m.IsInstalled(version) {

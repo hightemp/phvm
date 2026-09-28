@@ -99,6 +99,29 @@ phvm current
 
 ### Aliases
 
+`phvm use` resolves only installed PHP releases. A full version selects that
+exact release; `8.3` selects the highest installed `8.3.x`, and `8` selects the
+highest installed `8.x.x`. The `v` and `php-` prefixes are accepted for full and
+partial versions. Missing versions and corrupt installations are rejected.
+
+Local aliases take precedence and may point to another alias or a partial
+version. Cycles, corrupt alias files and chains longer than 10 links are errors.
+Without a local override, `latest` and `stable` select the newest installed
+release without contacting php.net. `lts` must be defined as a local alias.
+
+```bash
+phvm alias prod 8.3
+phvm use prod
+phvm use latest
+phvm composer disable --php 8.3
+phvm ext disable redis --php prod
+```
+
+The `--php` flags for Composer and extensions use the same installed-version
+resolver. They select the target for that operation and do not switch `current`.
+When `--php` is omitted, the current installed version is used. A failed `use`
+leaves the previous current version intact.
+
 | Command | Description |
 |---------|-------------|
 | `phvm alias <name> <version>` | Create an alias |

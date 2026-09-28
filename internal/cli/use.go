@@ -9,6 +9,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 var useCmd = &cobra.Command{
@@ -17,46 +18,38 @@ var useCmd = &cobra.Command{
 	Long: `Switch the current PHP version.
 
 The version can be a full version number (8.3.30), a partial version (8.3),
-or an alias (default, stable).
+or a local alias (default, prod). Partial versions select the newest matching
+installed release. The v and php- prefixes are accepted.
+
+Local aliases take precedence. Without a local alias, latest and stable select
+the newest installed release, without network access. Define lts explicitly
+as a local alias if needed. Alias cycles and missing versions are errors.
 
 Examples:
   phvm use 8.3.30
   phvm use 8.3
-  phvm use default`,
+  phvm use default
+  phvm use latest`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		versionArg := args[0]
 		paths := GetPaths()
 
 		installed := core.NewInstalledManager(paths)
-		aliases := core.NewAliasManager(paths)
 		current := core.NewCurrentManager(paths)
 
-		// Try to resolve as alias
-		version, _, err := aliases.ResolveVersionOrAlias(versionArg)
+		version, err := installed.Resolve(versionArg)
 		if err != nil {
-			// Try as a version pattern
-			version, err = installed.GetLatestInstalled(versionArg)
-			if err != nil {
-				log.Error("Version or alias not found: %s", versionArg)
-				os.Exit(1)
-			}
-		}
-
-		// Check if installed
-		if !installed.IsInstalled(version) {
-			log.Error("PHP %s is not installed", version)
-			log.Print("Run 'phvm install %s' to install it", version)
-			os.Exit(1)
+			return redact.Error(err, versionArg)
 		}
 
 		// Switch
 		if err := current.Set(version); err != nil {
-			log.Error("Failed to switch version: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("switch PHP version: %w", err)
 		}
 
 		log.Success("Now using PHP %s", version)
+		return nil
 	},
 }
 

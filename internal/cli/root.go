@@ -40,7 +40,14 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 - Build and install PECL extensions`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		paths = core.NewPaths(phvmDir)
+		if cmd == versionCmd {
+			fileConfig = core.DefaultConfig()
+			effectiveConfig = fileConfig.Clone()
+		} else if err := loadCommandConfig(cmd); err != nil {
+			return err
+		}
 		// Setup logger
 		level := log.LevelNormal
 		if verbose {
@@ -51,11 +58,9 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 		}
 
 		logger := log.New(os.Stderr, level)
-		logger.SetNoColor(noColor)
+		logger.SetNoColor(!effectiveConfig.General.Color)
 		log.SetDefault(logger)
-
-		// Setup paths
-		paths = core.NewPaths(phvmDir)
+		return nil
 	},
 }
 
@@ -70,6 +75,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	rootCmd.PersistentFlags().StringVar(&phvmDir, "phvm-dir", "", "Override PHVM_DIR")
+	rootCmd.PersistentFlags().String("mirror", "", "PHP source mirror base URL")
+	rootCmd.PersistentFlags().String("user-agent", "", "HTTP User-Agent")
+	rootCmd.PersistentFlags().Int("timeout", 60, "HTTP timeout in seconds")
+	rootCmd.PersistentFlags().Int("retries", 3, "HTTP retries (0-10)")
+	rootCmd.PersistentFlags().Bool("gpg", true, "Verify PHP signatures")
+	rootCmd.PersistentFlags().Bool("gpg-fallback-sha256", true, "Allow SHA256 fallback when GPG verification is unavailable")
 
 	// Add commands
 	rootCmd.AddCommand(versionCmd)
@@ -88,6 +99,7 @@ func init() {
 	rootCmd.AddCommand(composerCmd)
 	rootCmd.AddCommand(cacheCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(configCmd)
 }
 
 // GetPaths returns the paths instance.

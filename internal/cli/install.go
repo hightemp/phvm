@@ -51,19 +51,21 @@ Examples:
 }
 
 var (
-	installJobs       int
-	installProfile    string
-	installConfigure  string
-	installForce      bool
-	installSkipVerify bool
+	installJobs      int
+	installProfile   string
+	installConfigure string
+	installForce     bool
+	installSkipGPG   bool
 )
 
 func init() {
-	installCmd.Flags().IntVarP(&installJobs, "jobs", "j", 0, "Number of parallel build jobs")
+	installCmd.Flags().IntVarP(&installJobs, "jobs", "j", 0, "Number of parallel build jobs (0: automatic)")
 	installCmd.Flags().StringVar(&installProfile, "profile", "common", "Build profile (minimal, common, full)")
 	installCmd.Flags().StringVar(&installConfigure, "configure", "", "Additional configure flags")
 	installCmd.Flags().BoolVar(&installForce, "force", false, "Force reinstall if already installed")
-	installCmd.Flags().BoolVar(&installSkipVerify, "skip-verify", false, "Skip checksum verification")
+	installCmd.Flags().BoolVar(&installSkipGPG, "skip-gpg", false, "Skip GPG signature verification; SHA256 is always required")
+	installCmd.Flags().Bool("skip-verify", false, "Deprecated alias of --skip-gpg; SHA256 remains required")
+	_ = installCmd.Flags().MarkDeprecated("skip-verify", "use --skip-gpg; SHA256 verification is mandatory")
 }
 
 func runInstall(cmd *cobra.Command, args []string) {
@@ -136,9 +138,6 @@ func runInstall(cmd *cobra.Command, args []string) {
 	// Download and verify
 	startTime := time.Now()
 	verifier := getVerifier(paths, client)
-	if installSkipVerify {
-		verifier.SetGPGEnabled(false)
-	}
 
 	tarballPath, verification, err := verifier.DownloadAndVerify(ctx, tarball, api.KeyringURL())
 	if err != nil {
@@ -147,14 +146,11 @@ func runInstall(cmd *cobra.Command, args []string) {
 	}
 
 	// Parse custom configure flags
-	var customFlags []string
-	if installConfigure != "" {
-		customFlags = strings.Fields(installConfigure)
-	}
+	customFlags := append([]string{}, effectiveConfig.Build.DefaultFlags...)
 
 	// Build
 	builder := build.NewBuilder(paths, client)
-	builder.SetProfile(installProfile)
+	builder.SetProfile(effectiveConfig.General.DefaultProfile)
 
 	// Open log file
 	logPath := paths.LogFile("install-" + version)
@@ -170,9 +166,9 @@ func runInstall(cmd *cobra.Command, args []string) {
 	buildOpts := build.BuildOptions{
 		Version:     version,
 		TarballPath: tarballPath,
-		Profile:     installProfile,
+		Profile:     effectiveConfig.General.DefaultProfile,
 		CustomFlags: customFlags,
-		Jobs:        installJobs,
+		Jobs:        effectiveConfig.General.ParallelJobs,
 	}
 
 	if err := builder.Build(ctx, buildOpts); err != nil {

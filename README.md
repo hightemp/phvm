@@ -146,6 +146,9 @@ leaves the previous current version intact.
 | `phvm ini set <key> <value>` | Set php.ini value |
 | `phvm ini profile <name>` | Apply ini profile (development/production) |
 | `phvm ini edit` | Open php.ini in editor |
+| `phvm config show` | Show defaults plus TOML settings |
+| `phvm config show --effective` | Show settings after environment and explicit CLI overrides |
+| `phvm config validate` | Validate TOML, environment and explicit CLI settings |
 
 ### Other Commands
 
@@ -199,28 +202,87 @@ phvm ini profile production
 ├── cache/
 │   └── downloads/         # Downloaded tarballs
 ├── config/
-│   └── config.toml        # phvm configuration
+│   └── phvm.toml          # phvm configuration
 └── logs/                   # Build logs
 ```
 
 ## Configuration
 
-Create `~/.phvm/config/config.toml`:
+Create `~/.phvm/config/phvm.toml` (or `$PHVM_DIR/config/phvm.toml`). Omitted
+settings use the defaults shown below, except this example chooses four jobs
+and adds `--with-pear`:
 
 ```toml
-# Default build profile
+[general]
 default_profile = "common"
+parallel_jobs = 4
+color = true
 
-# Parallel make jobs
-jobs = 4
+[remote]
+mirror = "https://www.php.net"
+user_agent = "phvm/1.0.0"
+timeout = 60
+retries = 3
 
-# Verify GPG signatures
-verify_gpg = true
+[verify]
+sha256 = true
+gpg = true
+gpg_fallback_sha256 = true
 
-# Custom configure flags
-[configure]
-flags = ["--with-pear"]
+[build]
+default_flags = ["--with-pear"]
 ```
+
+The precedence is **explicit CLI flags → nonempty environment variables →
+TOML → built-in defaults**. An omitted flag does not replace a configured value;
+explicit `0` and `false` do. `--phvm-dir` takes precedence over `PHVM_DIR`.
+All supplied TOML and environment values must be valid, even when a CLI flag
+would override them. Unknown keys/tables, wrong types, invalid values and read
+errors stop the command with a nonzero exit code. A missing file uses defaults.
+`version` and `--help` remain available for diagnosis.
+
+The old `config/config.toml` location is detected when `phvm.toml` is absent and
+reported as an error. Move the file to `config/phvm.toml` and convert old
+top-level `default_profile`, `jobs`, `verify_gpg` and `[configure].flags` to the
+nested schema above. There is no silent fallback for a broken configuration.
+
+| Setting | CLI override | Valid values / behavior |
+|---------|--------------|-------------------------|
+| `general.default_profile` | `install --profile` | `minimal`, `common`, `full`; default PHP build profile |
+| `general.parallel_jobs` | `install --jobs`, `ext install --jobs` | Nonnegative integer; `0` selects the builder default (PHP: half the CPUs, minimum 1; PECL: 2) |
+| `general.color` | `--no-color[=false]` | Boolean; `--no-color` disables color, `--no-color=false` enables it |
+| `remote.mirror` | `--mirror` | Absolute HTTP(S) base URL without query/fragment; PHP API and source downloads |
+| `remote.user_agent` | `--user-agent` | Nonempty, single-line HTTP User-Agent |
+| `remote.timeout` | `--timeout` | Integer seconds, 1–86400, for each HTTP attempt |
+| `remote.retries` | `--retries` | Integer, 0–10; retries after the initial HTTP attempt |
+| `verify.sha256` | None | Must be `true`; SHA256 is mandatory |
+| `verify.gpg` | `--gpg`, `install --skip-gpg` | Boolean; PHP signature verification |
+| `verify.gpg_fallback_sha256` | `--gpg-fallback-sha256` | Boolean; permit unavailable GPG verification only after successful SHA256 |
+| `build.default_flags` | `install --configure` | Array of nonempty, single-line PHP configure arguments |
+
+Environment variables are listed below. `PHVM_CONFIGURE_FLAGS` replaces the
+TOML flags array; explicit `--configure` arguments are merged over it, replacing
+conflicting options. Profile flags are the base for the PHP build. These settings
+do not supply configure arguments to PECL extensions.
+
+```bash
+phvm config validate
+phvm config show
+PHVM_JOBS=2 phvm config show --effective
+phvm config show --effective --profile minimal --jobs 0 --gpg=false
+PHVM_CONFIGURE_FLAGS='["--with-pdo-mysql"]' phvm install 8.3 --jobs 2
+phvm install 8.3 --skip-gpg
+```
+
+`config show` prints defaults plus file settings without environment/CLI
+overrides; `--effective` includes them. `config show --effective` and
+`config validate` accept `--profile`, `--jobs` and `--configure` to inspect PHP
+installation overrides. Displayed URL credentials are redacted.
+
+`--skip-gpg` disables only GPG; SHA256 remains mandatory. `--skip-verify` is a
+deprecated alias with the same behavior. Use one of `--gpg`, `--skip-gpg` or
+`--skip-verify` per command; combining them is an error. Invalid or revoked
+signatures always fail when GPG is enabled, including with fallback enabled.
 
 ## Building from Source
 
@@ -412,6 +474,19 @@ sudo dnf install -y \
 |----------|-------------|---------|
 | `PHVM_DIR` | phvm installation directory | `~/.phvm` |
 | `PHVM_VERSION` | Version to install (installer) | `latest` |
+| `PHVM_PROFILE` | `general.default_profile` | `common` |
+| `PHVM_JOBS` | `general.parallel_jobs` | `0` (builder default) |
+| `PHVM_COLOR` | `general.color` | `true` |
+| `PHVM_MIRROR` | `remote.mirror` | `https://www.php.net` |
+| `PHVM_USER_AGENT` | `remote.user_agent` | `phvm/1.0.0` |
+| `PHVM_TIMEOUT` | `remote.timeout`, seconds per attempt | `60` |
+| `PHVM_RETRIES` | `remote.retries` | `3` |
+| `PHVM_GPG` | `verify.gpg` | `true` |
+| `PHVM_GPG_FALLBACK_SHA256` | `verify.gpg_fallback_sha256` | `true` |
+| `PHVM_CONFIGURE_FLAGS` | `build.default_flags`, JSON array of strings | `[]` |
+
+Empty configuration environment variables are treated as unset. Use `true` or
+`false` for booleans (`1`/`0` and Go boolean spellings are also accepted).
 
 ## Troubleshooting
 

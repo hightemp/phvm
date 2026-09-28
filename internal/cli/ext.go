@@ -122,7 +122,7 @@ Examples:
 		phpVersion, _ := cmd.Flags().GetString("php")
 		extVersion, _ := cmd.Flags().GetString("version")
 		configure, _ := cmd.Flags().GetString("configure")
-		jobs, _ := cmd.Flags().GetInt("jobs")
+		jobs := effectiveConfig.General.ParallelJobs
 
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
@@ -248,5 +248,5 @@ func init() {
 
 	extInstallCmd.Flags().String("version", "", "Extension version (default: latest)")
 	extInstallCmd.Flags().String("configure", "", "Additional configure flags")
-	extInstallCmd.Flags().Int("jobs", 2, "Number of parallel build jobs")
+	extInstallCmd.Flags().Int("jobs", 0, "Number of parallel build jobs (0: extension builder default)")
 }

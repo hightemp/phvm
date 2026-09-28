@@ -9,8 +9,7 @@ import (
 
 // getClient creates a remote client with config settings.
 func getClient(paths *core.Paths) *remote.Client {
-	cfgMgr := core.NewConfigManager(paths)
-	cfg := cfgMgr.Get()
+	cfg := effectiveConfig
 
 	opts := remote.ClientOptions{
 		UserAgent: cfg.Remote.UserAgent,
@@ -34,8 +33,7 @@ func getPECLAPI(client *remote.Client) *remote.PECLAPI {
 
 // getVerifier creates a verifier with config settings.
 func getVerifier(paths *core.Paths, client *remote.Client) *remote.Verifier {
-	cfgMgr := core.NewConfigManager(paths)
-	cfg := cfgMgr.Get()
+	cfg := effectiveConfig
 
 	verifier := remote.NewVerifier(client, paths.Downloads)
 	verifier.SetGPGEnabled(cfg.Verify.GPG)

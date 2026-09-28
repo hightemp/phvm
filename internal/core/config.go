@@ -1,12 +1,19 @@
 package core
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/hightemp/phvm/internal/fsutil"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 // Config holds phvm configuration.
@@ -71,31 +78,118 @@ func DefaultConfig() *Config {
 
 // LoadConfig loads configuration from a file.
 func LoadConfig(path string) (*Config, error) {
-	if !fsutil.Exists(path) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
 		return DefaultConfig(), nil
 	}
-
-	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config file: %w", err)
 	}
 
-	cfg := DefaultConfig()
-	if err := toml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config file: %w", err)
-	}
+	return parseConfig(data)
+}
 
+func parseConfig(data []byte) (*Config, error) {
+	cfg := DefaultConfig()
+	if err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(cfg); err != nil {
+		return nil, fmt.Errorf("parse config file: %w", redact.Error(err, ""))
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// Validate enforces the configuration schema and mandatory integrity policy.
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+	switch c.General.DefaultProfile {
+	case "minimal", "common", "full":
+	default:
+		return fmt.Errorf("general.default_profile must be minimal, common or full")
+	}
+	if c.General.ParallelJobs < 0 {
+		return fmt.Errorf("general.parallel_jobs must be nonnegative")
+	}
+	if c.Remote.Timeout <= 0 || int64(c.Remote.Timeout) > 86400 {
+		return fmt.Errorf("remote.timeout must be between 1 and 86400 seconds")
+	}
+	if c.Remote.Retries < 0 || c.Remote.Retries > 10 {
+		return fmt.Errorf("remote.retries must be between 0 and 10")
+	}
+	u, err := url.Parse(c.Remote.Mirror)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("remote.mirror must be an absolute HTTP(S) base URL without query or fragment")
+	}
+	if strings.TrimSpace(c.Remote.UserAgent) == "" || strings.ContainsAny(c.Remote.UserAgent, "\r\n\x00") {
+		return fmt.Errorf("remote.user_agent must be a nonempty single line")
+	}
+	if !c.Verify.SHA256 {
+		return fmt.Errorf("verify.sha256 must remain true: SHA256 verification is mandatory")
+	}
+	for _, flag := range c.Build.DefaultFlags {
+		if strings.TrimSpace(flag) == "" || strings.ContainsAny(flag, "\r\n\x00") {
+			return fmt.Errorf("build.default_flags must contain nonempty single-line arguments")
+		}
+	}
+	return nil
+}
+
+// Clone returns an independent configuration snapshot.
+func (c *Config) Clone() *Config {
+	copy := *c
+	copy.Build.DefaultFlags = append([]string{}, c.Build.DefaultFlags...)
+	return &copy
+}
+
+// ApplyEnvironment applies documented PHVM_* overrides; empty values are unset.
+func (c *Config) ApplyEnvironment() error {
+	for name, target := range map[string]*string{"PHVM_PROFILE": &c.General.DefaultProfile, "PHVM_MIRROR": &c.Remote.Mirror, "PHVM_USER_AGENT": &c.Remote.UserAgent} {
+		if value := os.Getenv(name); value != "" {
+			*target = value
+		}
+	}
+	for name, target := range map[string]*int{"PHVM_JOBS": &c.General.ParallelJobs, "PHVM_TIMEOUT": &c.Remote.Timeout, "PHVM_RETRIES": &c.Remote.Retries} {
+		if value := os.Getenv(name); value != "" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("%s must be an integer", name)
+			}
+			*target = parsed
+		}
+	}
+	for name, target := range map[string]*bool{"PHVM_COLOR": &c.General.Color, "PHVM_GPG": &c.Verify.GPG, "PHVM_GPG_FALLBACK_SHA256": &c.Verify.GPGFallbackSHA256} {
+		if value := os.Getenv(name); value != "" {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("%s must be a boolean", name)
+			}
+			*target = parsed
+		}
+	}
+	if value := os.Getenv("PHVM_CONFIGURE_FLAGS"); value != "" {
+		var flags []string
+		if err := json.Unmarshal([]byte(value), &flags); err != nil || strings.TrimSpace(value) == "null" {
+			return fmt.Errorf("PHVM_CONFIGURE_FLAGS must be a JSON array of strings")
+		}
+		c.Build.DefaultFlags = flags
+	}
+	return c.Validate()
 }
 
 // Save saves configuration to a file.
 func (c *Config) Save(path string) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
 	data, err := toml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := fsutil.AtomicWriteFile(path, data, 0644); err != nil {
+	if err := fsutil.AtomicWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write config file: %w", err)
 	}
 
@@ -119,11 +213,32 @@ func (m *ConfigManager) Load() (*Config, error) {
 		return m.config, nil
 	}
 
-	cfg, err := LoadConfig(m.paths.ConfigFile())
+	root, err := m.paths.OpenDataDir(m.paths.Config, false)
+	if os.IsNotExist(err) {
+		m.config = DefaultConfig()
+		return m.config, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open config directory: %w", err)
+	}
+	defer root.Close()
+	data, err := root.ReadFile(filepath.Base(m.paths.ConfigFile()))
+	if os.IsNotExist(err) {
+		if _, legacyErr := root.Lstat("config.toml"); legacyErr == nil {
+			return nil, fmt.Errorf("legacy config/config.toml detected: move it to config/phvm.toml and use [general], [remote], [verify], [build]")
+		} else if !os.IsNotExist(legacyErr) {
+			return nil, legacyErr
+		}
+		m.config = DefaultConfig()
+		return m.config, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read config file: %w", err)
+	}
+	cfg, err := parseConfig(data)
 	if err != nil {
 		return nil, err
 	}
-
 	m.config = cfg
 	return cfg, nil
 }
@@ -139,13 +254,7 @@ func (m *ConfigManager) Save() error {
 
 // Get returns the current configuration.
 // Loads from file if not already loaded.
-func (m *ConfigManager) Get() *Config {
-	cfg, err := m.Load()
-	if err != nil {
-		return DefaultConfig()
-	}
-	return cfg
-}
+func (m *ConfigManager) Get() (*Config, error) { return m.Load() }
 
 // Set sets a new configuration.
 func (m *ConfigManager) Set(config *Config) {

@@ -238,6 +238,30 @@ make lint
 make fmt
 ```
 
+### Release
+
+`VERSION` contains the next release version in `X.Y.Z` format, without a `v`
+prefix. Local builds also use this version for `phvm version`.
+
+```bash
+# Set the version, then publish it
+printf '1.0.7\n' > VERSION
+make release
+```
+
+`make release` stages all non-ignored changes, creates a `chore: release vX.Y.Z`
+commit and an annotated `vX.Y.Z` tag, then pushes the current branch and tag to
+`origin` atomically. The tag push triggers `.github/workflows/release.yml`.
+Existing local or remote tags are rejected before committing. If the push
+fails, the local commit and tag remain, and the command prints how to retry.
+Update `VERSION` before each new release.
+
+Test the automation using temporary local Git repositories:
+
+```bash
+make test-release
+```
+
 ## PHP Build Requirements
 
 Before installing PHP, ensure you have the required build dependencies:

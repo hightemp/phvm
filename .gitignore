@@ -9,6 +9,9 @@
 coverage.out
 coverage.html
 
+# Python release tests
+__pycache__/
+
 # Go workspace
 go.work
 go.work.sum

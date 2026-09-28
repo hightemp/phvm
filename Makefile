@@ -1,14 +1,14 @@
 # phvm Makefile
 
 BINARY_NAME := phvm
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
+VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS := -ldflags "-s -w -X github.com/hightemp/phvm/internal/cli.Version=$(VERSION) -X github.com/hightemp/phvm/internal/cli.Commit=$(COMMIT)"
 
 GO := go
 GOFLAGS := -trimpath
 
-.PHONY: all build clean test lint fmt vet install uninstall help
+.PHONY: all build clean test test-release release lint fmt vet install uninstall help
 
 # Default target
 all: lint test build
@@ -37,6 +37,14 @@ clean:
 test:
 	@echo "Running tests..."
 	$(GO) test -v -race -cover ./...
+
+# Test release automation against temporary local Git repositories
+test-release:
+	python3 -B -m unittest discover -s scripts/tests -p 'test_release.py' -v
+
+# Commit and publish the version from VERSION, triggering the release workflow
+release:
+	@sh scripts/release.sh
 
 # Run tests with coverage report
 test-coverage:
@@ -119,7 +127,9 @@ help:
 	@echo "  build-all      Build for all platforms"
 	@echo "  clean          Remove build artifacts"
 	@echo "  test           Run tests"
+	@echo "  test-release   Test release automation with local Git repositories"
 	@echo "  test-coverage  Run tests with coverage report"
+	@echo "  release        Commit all changes and push the VERSION tag to origin"
 	@echo "  lint           Run golangci-lint"
 	@echo "  fmt            Format code"
 	@echo "  vet            Vet code"

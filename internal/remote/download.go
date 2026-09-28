@@ -35,6 +35,9 @@ func (d *Downloader) SetShowProgress(show bool) {
 // Download downloads a file to the cache directory.
 // Returns the path to the downloaded file.
 func (d *Downloader) Download(ctx context.Context, url, filename string) (string, error) {
+	if err := fsutil.ValidateName(filename); err != nil {
+		return "", err
+	}
 	destPath := filepath.Join(d.cacheDir, filename)
 
 	// Check if already cached

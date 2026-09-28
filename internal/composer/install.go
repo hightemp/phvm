@@ -11,10 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 const (
@@ -24,40 +27,47 @@ const (
 
 // Manager manages Composer installation.
 type Manager struct {
-	paths *core.Paths
+	paths  *core.Paths
+	client *http.Client
 }
 
 // NewManager creates a new Manager.
 func NewManager(paths *core.Paths) *Manager {
-	return &Manager{paths: paths}
+	client := *http.DefaultClient
+	if client.Timeout == 0 {
+		client.Timeout = 60 * time.Second
+	}
+	return &Manager{paths: paths, client: &client}
 }
 
 // Install installs Composer for a PHP version.
 func (m *Manager) Install(ctx context.Context, phpVersion string) error {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	log.Info("Installing Composer for PHP %s", phpVersion)
 
-	phpDir := m.paths.VersionDir(phpVersion)
-	binDir := filepath.Join(phpDir, "bin")
-	composerPath := filepath.Join(binDir, "composer")
+	binDir := m.paths.VersionBin(phpVersion)
+	root, err := m.paths.OpenVersion(phpVersion, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 
 	// Check if PHP is installed
 	phpBin := filepath.Join(binDir, core.PHPBinary())
-	if !fsutil.Exists(phpBin) {
+	if _, err := root.Stat(filepath.Join("bin", core.PHPBinary())); err != nil {
 		return fmt.Errorf("PHP %s is not installed", phpVersion)
 	}
 
 	// Download composer.phar
 	log.Info("Downloading Composer...")
 
-	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
-	if err := m.download(ctx, composerURL, pharPath); err != nil {
+	pharPath, err := m.installVerified(ctx)
+	if err != nil {
 		return fmt.Errorf("download composer: %w", err)
-	}
-
-	// Verify checksum
-	if err := m.verifyChecksum(ctx, pharPath); err != nil {
-		log.Warn("Checksum verification failed: %v", err)
-		// Continue anyway, it's just a warning
 	}
 
 	// Create wrapper script
@@ -65,7 +75,7 @@ func (m *Manager) Install(ctx context.Context, phpVersion string) error {
 exec "%s" "%s" "$@"
 `, phpBin, pharPath)
 
-	if err := fsutil.AtomicWriteFile(composerPath, []byte(wrapper), 0755); err != nil {
+	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), []byte(wrapper), 0755); err != nil {
 		return fmt.Errorf("create composer wrapper: %w", err)
 	}
 
@@ -77,16 +87,9 @@ exec "%s" "%s" "$@"
 func (m *Manager) InstallGlobal(ctx context.Context) error {
 	log.Info("Installing Composer globally...")
 
-	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
-
-	// Download
-	if err := m.download(ctx, composerURL, pharPath); err != nil {
+	pharPath, err := m.installVerified(ctx)
+	if err != nil {
 		return fmt.Errorf("download composer: %w", err)
-	}
-
-	// Verify
-	if err := m.verifyChecksum(ctx, pharPath); err != nil {
-		log.Warn("Checksum verification failed: %v", err)
 	}
 
 	log.Success("Composer installed globally at %s", pharPath)
@@ -95,6 +98,11 @@ func (m *Manager) InstallGlobal(ctx context.Context) error {
 
 // Update updates Composer.
 func (m *Manager) Update(ctx context.Context, phpVersion string) error {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	binDir := m.paths.VersionBin(phpVersion)
 	composerPath := filepath.Join(binDir, "composer")
 
@@ -120,8 +128,17 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 
 // Enable enables Composer for a PHP version.
 func (m *Manager) Enable(phpVersion string) error {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
+	root, err := m.paths.OpenVersion(phpVersion, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	binDir := m.paths.VersionBin(phpVersion)
-	composerPath := filepath.Join(binDir, "composer")
 	phpBin := filepath.Join(binDir, core.PHPBinary())
 	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
 
@@ -138,7 +155,7 @@ func (m *Manager) Enable(phpVersion string) error {
 exec "%s" "%s" "$@"
 `, phpBin, pharPath)
 
-	if err := fsutil.AtomicWriteFile(composerPath, []byte(wrapper), 0755); err != nil {
+	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), []byte(wrapper), 0755); err != nil {
 		return fmt.Errorf("create composer wrapper: %w", err)
 	}
 
@@ -148,13 +165,13 @@ exec "%s" "%s" "$@"
 
 // Disable removes Composer from a PHP version.
 func (m *Manager) Disable(phpVersion string) error {
-	binDir := m.paths.VersionBin(phpVersion)
-	composerPath := filepath.Join(binDir, "composer")
-
-	if fsutil.Exists(composerPath) {
-		if err := os.Remove(composerPath); err != nil {
-			return fmt.Errorf("remove composer: %w", err)
-		}
+	root, err := m.paths.OpenVersion(phpVersion, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := root.Remove(filepath.Join("bin", "composer")); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove composer: %w", err)
 	}
 
 	log.Success("Composer disabled for PHP %s", phpVersion)
@@ -163,9 +180,13 @@ func (m *Manager) Disable(phpVersion string) error {
 
 // IsInstalled checks if Composer is installed for a PHP version.
 func (m *Manager) IsInstalled(phpVersion string) bool {
-	binDir := m.paths.VersionBin(phpVersion)
-	composerPath := filepath.Join(binDir, "composer")
-	return fsutil.Exists(composerPath)
+	root, err := m.paths.OpenVersion(phpVersion, false)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	_, err = root.Stat(filepath.Join("bin", "composer"))
+	return err == nil
 }
 
 // IsInstalledGlobally checks if Composer is installed globally.
@@ -174,20 +195,46 @@ func (m *Manager) IsInstalledGlobally() bool {
 	return fsutil.Exists(pharPath)
 }
 
-// download downloads a file.
-func (m *Manager) download(ctx context.Context, url, destPath string) error {
-	if err := fsutil.EnsureDir(filepath.Dir(destPath)); err != nil {
-		return err
+func (m *Manager) installVerified(ctx context.Context) (string, error) {
+	root, err := m.paths.OpenDataDir(m.paths.Downloads, true)
+	if err != nil {
+		return "", err
 	}
+	defer root.Close()
+	name := "composer.phar.tmp-" + fsutil.RandomSuffix()
+	defer func() { _ = root.Remove(name) }()
+	if err := m.download(ctx, composerURL, root, name); err != nil {
+		return "", err
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return "", err
+	}
+	err = m.verifyChecksumReader(ctx, file)
+	_ = file.Close()
+	if err != nil {
+		return "", fmt.Errorf("verify composer: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := root.Rename(name, "composer.phar"); err != nil {
+		return "", err
+	}
+	return filepath.Join(m.paths.Downloads, "composer.phar"), nil
+}
+
+// download streams a file into a unique confined staging file.
+func (m *Manager) download(ctx context.Context, url string, root *os.Root, name string) error {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return redact.Error(err, url)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.client.Do(req)
 	if err != nil {
-		return err
+		return redact.Error(err, url)
 	}
 	defer resp.Body.Close()
 
@@ -195,31 +242,33 @@ func (m *Manager) download(ctx context.Context, url, destPath string) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 
-	_, err = io.Copy(f, resp.Body)
-	f.Close()
+	defer f.Close()
+	written, err := io.Copy(f, resp.Body)
 	if err != nil {
-		os.Remove(tmpPath)
 		return err
 	}
-
-	return os.Rename(tmpPath, destPath)
+	if resp.ContentLength > 0 && written != resp.ContentLength {
+		return fmt.Errorf("incomplete composer download")
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return f.Close()
 }
 
-// verifyChecksum verifies the Composer checksum.
-func (m *Manager) verifyChecksum(ctx context.Context, pharPath string) error {
+func (m *Manager) verifyChecksumReader(ctx context.Context, source io.Reader) error {
 	// Get expected checksum
 	req, err := http.NewRequestWithContext(ctx, "GET", composerSigURL, nil)
 	if err != nil {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -229,33 +278,25 @@ func (m *Manager) verifyChecksum(ctx context.Context, pharPath string) error {
 		return fmt.Errorf("failed to get checksum: HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if err != nil {
 		return err
 	}
 
-	// Parse checksum (format: "hash  filename")
-	parts := string(body)
-	expected := ""
-	for i := 0; i < len(parts); i++ {
-		if parts[i] == ' ' || parts[i] == '\t' || parts[i] == '\n' {
-			expected = parts[:i]
-			break
-		}
+	parts := strings.Fields(string(body))
+	if len(body) > 4096 || len(parts) == 0 || len(parts) > 2 || len(parts[0]) != 64 {
+		return fmt.Errorf("invalid composer SHA256 response")
 	}
-	if expected == "" {
-		expected = string(body[:64])
+	if _, err := hex.DecodeString(parts[0]); err != nil {
+		return fmt.Errorf("invalid composer SHA256: %w", err)
 	}
-
-	// Compute actual checksum
-	f, err := os.Open(pharPath)
-	if err != nil {
-		return err
+	if len(parts) == 2 && strings.TrimPrefix(parts[1], "*") != "composer.phar" {
+		return fmt.Errorf("unexpected composer checksum filename")
 	}
-	defer f.Close()
+	expected := strings.ToLower(parts[0])
 
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, source); err != nil {
 		return err
 	}
 

@@ -180,15 +180,22 @@ func parseVersion(version string) (int, int) {
 
 // EnsureDeps ensures all required dependencies are built for a PHP version.
 func (m *DepsManager) EnsureDeps(ctx context.Context, phpVersion string) error {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	deps := GetRequiredDeps(phpVersion)
 	if len(deps) == 0 {
 		return nil
 	}
 
 	depsDir := m.DepsDir(phpVersion)
-	if err := fsutil.EnsureDir(depsDir); err != nil {
+	root, err := m.paths.OpenDataDir(depsDir, true)
+	if err != nil {
 		return fmt.Errorf("create deps directory: %w", err)
 	}
+	_ = root.Close()
 
 	for _, dep := range deps {
 		if err := m.ensureDep(ctx, dep, depsDir); err != nil {
@@ -472,6 +479,11 @@ func (m *DepsManager) fixCurlPkgConfig(depsDir string) error {
 
 // GetBuildEnv returns environment variables for building PHP with dependencies.
 func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return nil
+	}
 	deps := GetRequiredDeps(phpVersion)
 	if len(deps) == 0 {
 		return nil
@@ -619,6 +631,11 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 
 // GetConfigureFlags returns additional configure flags for PHP with dependencies.
 func (m *DepsManager) GetConfigureFlags(phpVersion string) []string {
+	var err error
+	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return nil
+	}
 	deps := GetRequiredDeps(phpVersion)
 	if len(deps) == 0 {
 		return nil

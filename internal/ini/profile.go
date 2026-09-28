@@ -29,7 +29,20 @@ type Profile struct {
 
 // List lists all available profiles.
 func (m *ProfileManager) List() ([]Profile, error) {
-	entries, err := os.ReadDir(m.paths.Profiles)
+	root, err := m.paths.OpenDataDir(m.paths.Profiles, false)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -43,14 +56,11 @@ func (m *ProfileManager) List() ([]Profile, error) {
 			continue
 		}
 
-		profilePath := filepath.Join(m.paths.Profiles, entry.Name())
-		profile := Profile{
-			Name:    entry.Name(),
-			Path:    profilePath,
-			HasIni:  fsutil.Exists(filepath.Join(profilePath, "php.ini")),
-			HasConf: fsutil.IsDir(filepath.Join(profilePath, "conf.d")),
+		profile, err := m.Get(entry.Name())
+		if err != nil {
+			continue
 		}
-		profiles = append(profiles, profile)
+		profiles = append(profiles, *profile)
 	}
 
 	return profiles, nil
@@ -58,30 +68,43 @@ func (m *ProfileManager) List() ([]Profile, error) {
 
 // Get returns a profile by name.
 func (m *ProfileManager) Get(name string) (*Profile, error) {
+	if err := fsutil.ValidateName(name); err != nil {
+		return nil, err
+	}
 	profilePath := m.paths.ProfileDir(name)
-
-	if !fsutil.IsDir(profilePath) {
+	root, err := m.paths.OpenDataDir(profilePath, false)
+	if err != nil {
 		return nil, fmt.Errorf("profile not found: %s", name)
+	}
+	defer root.Close()
+	iniInfo, iniErr := root.Stat("php.ini")
+	if iniErr != nil && !os.IsNotExist(iniErr) {
+		return nil, iniErr
+	}
+	confInfo, confErr := root.Stat("conf.d")
+	if confErr != nil && !os.IsNotExist(confErr) {
+		return nil, confErr
 	}
 
 	return &Profile{
 		Name:    name,
 		Path:    profilePath,
-		HasIni:  fsutil.Exists(filepath.Join(profilePath, "php.ini")),
-		HasConf: fsutil.IsDir(filepath.Join(profilePath, "conf.d")),
+		HasIni:  iniErr == nil && iniInfo.Mode().IsRegular(),
+		HasConf: confErr == nil && confInfo.IsDir(),
 	}, nil
 }
 
 // Apply applies a profile to a PHP version.
 func (m *ProfileManager) Apply(profileName, version string, backup bool) error {
+	var err error
+	version, err = m.paths.CheckVersionPath(version)
+	if err != nil {
+		return err
+	}
 	profile, err := m.Get(profileName)
 	if err != nil {
 		return err
 	}
-
-	versionEtc := m.paths.VersionEtc(version)
-	versionIni := m.paths.VersionPhpIni(version)
-	versionConfD := m.paths.VersionConfD(version)
 
 	// Backup existing configuration if requested
 	if backup {
@@ -90,117 +113,133 @@ func (m *ProfileManager) Apply(profileName, version string, backup bool) error {
 		}
 	}
 
-	// Copy php.ini if exists
-	if profile.HasIni {
-		srcIni := filepath.Join(profile.Path, "php.ini")
-		if err := fsutil.AtomicCopyFile(srcIni, versionIni, 0644); err != nil {
-			return fmt.Errorf("copy php.ini: %w", err)
-		}
+	src, err := m.paths.OpenDataDir(profile.Path, false)
+	if err != nil {
+		return err
 	}
-
-	// Copy conf.d if exists
-	if profile.HasConf {
-		srcConfD := filepath.Join(profile.Path, "conf.d")
-
-		// Ensure conf.d exists
-		if err := fsutil.EnsureDir(versionConfD); err != nil {
-			return fmt.Errorf("create conf.d: %w", err)
-		}
-
-		// Copy all ini files
-		entries, err := os.ReadDir(srcConfD)
-		if err != nil {
-			return fmt.Errorf("read profile conf.d: %w", err)
-		}
-
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			srcPath := filepath.Join(srcConfD, entry.Name())
-			dstPath := filepath.Join(versionConfD, entry.Name())
-			if err := fsutil.AtomicCopyFile(srcPath, dstPath, 0644); err != nil {
-				return fmt.Errorf("copy %s: %w", entry.Name(), err)
-			}
-		}
+	defer src.Close()
+	dst, err := m.paths.OpenDataDir(m.paths.VersionEtc(version), true)
+	if err != nil {
+		return err
 	}
-
-	// Ensure etc directory exists
-	if err := fsutil.EnsureDir(versionEtc); err != nil {
-		return fmt.Errorf("create etc: %w", err)
-	}
-
-	return nil
+	defer dst.Close()
+	return copyProfileConfig(src, dst)
 }
 
 // Save saves the current configuration as a profile.
 func (m *ProfileManager) Save(profileName, version string) error {
-	versionIni := m.paths.VersionPhpIni(version)
-	versionConfD := m.paths.VersionConfD(version)
-
-	profilePath := m.paths.ProfileDir(profileName)
-	profileIni := filepath.Join(profilePath, "php.ini")
-	profileConfD := filepath.Join(profilePath, "conf.d")
-
-	// Create profile directory
-	if err := fsutil.EnsureDir(profilePath); err != nil {
-		return fmt.Errorf("create profile directory: %w", err)
+	if err := fsutil.ValidateName(profileName); err != nil {
+		return err
 	}
-
-	// Copy php.ini
-	if fsutil.Exists(versionIni) {
-		if err := fsutil.AtomicCopyFile(versionIni, profileIni, 0644); err != nil {
-			return fmt.Errorf("copy php.ini: %w", err)
-		}
+	version, err := m.paths.CheckVersionPath(version)
+	if err != nil {
+		return err
 	}
-
-	// Copy conf.d
-	if fsutil.IsDir(versionConfD) {
-		if err := fsutil.CopyDir(versionConfD, profileConfD); err != nil {
-			return fmt.Errorf("copy conf.d: %w", err)
-		}
+	src, err := m.paths.OpenDataDir(m.paths.VersionEtc(version), false)
+	if err != nil {
+		return err
 	}
-
-	return nil
+	defer src.Close()
+	dst, err := m.paths.OpenDataDir(m.paths.ProfileDir(profileName), true)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	return copyProfileConfig(src, dst)
 }
 
 // Delete deletes a profile.
 func (m *ProfileManager) Delete(name string) error {
-	profilePath := m.paths.ProfileDir(name)
-
-	if !fsutil.IsDir(profilePath) {
-		return fmt.Errorf("profile not found: %s", name)
+	if err := fsutil.ValidateName(name); err != nil {
+		return err
 	}
-
-	return os.RemoveAll(profilePath)
+	root, err := m.paths.OpenDataDir(m.paths.Profiles, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.RemoveAll(name)
 }
 
 // backupVersion creates a backup of the version's configuration.
 func (m *ProfileManager) backupVersion(version string) error {
-	versionEtc := m.paths.VersionEtc(version)
-	backupPath := versionEtc + ".backup"
+	root, err := m.paths.OpenVersion(version, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	src, err := root.OpenRoot("etc")
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	if err := root.RemoveAll("etc.backup"); err != nil {
+		return err
+	}
+	if err := root.Mkdir("etc.backup", 0755); err != nil {
+		return err
+	}
+	dst, err := root.OpenRoot("etc.backup")
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	return fsutil.CopyRootTree(src, dst)
+}
 
-	// Remove existing backup
-	if fsutil.Exists(backupPath) {
-		if err := os.RemoveAll(backupPath); err != nil {
+func copyProfileConfig(src, dst *os.Root) error {
+	if info, err := src.Lstat("php.ini"); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("php.ini must be a regular file")
+		}
+		data, err := src.ReadFile("php.ini")
+		if err != nil {
 			return err
 		}
+		if err := fsutil.AtomicWriteRoot(dst, "php.ini", data, 0644); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-
-	// Copy current etc to backup
-	if fsutil.IsDir(versionEtc) {
-		return fsutil.CopyDir(versionEtc, backupPath)
+	if info, err := src.Lstat("conf.d"); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("conf.d must be a directory")
+		}
+		s, err := src.OpenRoot("conf.d")
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		if err := dst.Mkdir("conf.d", 0755); err != nil && !os.IsExist(err) {
+			return err
+		}
+		d, err := dst.OpenRoot("conf.d")
+		if err != nil {
+			return err
+		}
+		defer d.Close()
+		return fsutil.CopyRootTree(s, d)
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-
 	return nil
 }
 
 // CreateDefaultProfiles creates the default profiles.
 func (m *ProfileManager) CreateDefaultProfiles() error {
+	root, err := m.paths.OpenDataDir(m.paths.Profiles, true)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	// Development profile
 	devPath := m.paths.ProfileDir("development")
 	if !fsutil.IsDir(devPath) {
-		if err := fsutil.EnsureDir(devPath); err != nil {
+		if err := root.MkdirAll("development", 0755); err != nil {
 			return err
 		}
 
@@ -223,7 +262,7 @@ opcache.enable_cli=0
 opcache.validate_timestamps=1
 opcache.revalidate_freq=0
 `
-		if err := fsutil.AtomicWriteFile(filepath.Join(devPath, "php.ini"), []byte(devIni), 0644); err != nil {
+		if err := fsutil.AtomicWriteRoot(root, filepath.Join("development", "php.ini"), []byte(devIni), 0644); err != nil {
 			return err
 		}
 	}
@@ -231,7 +270,7 @@ opcache.revalidate_freq=0
 	// Production profile
 	prodPath := m.paths.ProfileDir("production")
 	if !fsutil.IsDir(prodPath) {
-		if err := fsutil.EnsureDir(prodPath); err != nil {
+		if err := root.MkdirAll("production", 0755); err != nil {
 			return err
 		}
 
@@ -256,7 +295,7 @@ opcache.max_accelerated_files=10000
 opcache.memory_consumption=128
 opcache.interned_strings_buffer=16
 `
-		if err := fsutil.AtomicWriteFile(filepath.Join(prodPath, "php.ini"), []byte(prodIni), 0644); err != nil {
+		if err := fsutil.AtomicWriteRoot(root, filepath.Join("production", "php.ini"), []byte(prodIni), 0644); err != nil {
 			return err
 		}
 	}

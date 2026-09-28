@@ -59,6 +59,19 @@ type InstallOptions struct {
 
 // Install installs a PECL extension.
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
+	if err := fsutil.ValidateName(opts.Name); err != nil {
+		return err
+	}
+	var err error
+	opts.PHPVersion, err = i.paths.CheckVersionPath(opts.PHPVersion)
+	if err != nil {
+		return err
+	}
+	if opts.Version != "" {
+		if err := fsutil.ValidateName(opts.Version); err != nil {
+			return err
+		}
+	}
 	log.Info("Installing extension %s", opts.Name)
 
 	if opts.Jobs > 0 {
@@ -94,6 +107,9 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Download extension
+	if err := fsutil.ValidateName(version); err != nil {
+		return err
+	}
 	downloadURL := i.peclAPI.GetDownloadURL(opts.Name, version)
 	filename := fmt.Sprintf("%s-%s.tgz", opts.Name, version)
 
@@ -291,6 +307,14 @@ func isZendExtension(name string) bool {
 
 // Uninstall removes an extension.
 func (i *Installer) Uninstall(ctx context.Context, name, phpVersion string) error {
+	if err := fsutil.ValidateName(name); err != nil {
+		return err
+	}
+	var err error
+	phpVersion, err = i.paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	log.Info("Uninstalling extension %s", name)
 
 	// Remove ini file

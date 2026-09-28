@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/hightemp/phvm/internal/fsutil"
@@ -25,15 +24,17 @@ func (m *AliasManager) Set(name, version string) error {
 		return err
 	}
 
-	aliasPath := m.paths.AliasFile(name)
-
-	// Ensure alias directory exists
-	if err := os.MkdirAll(m.paths.Alias, 0755); err != nil {
+	if err := fsutil.ValidateName(version); err != nil {
+		return fmt.Errorf("invalid alias target: %w", err)
+	}
+	root, err := m.paths.OpenDataDir(m.paths.Alias, true)
+	if err != nil {
 		return fmt.Errorf("create alias directory: %w", err)
 	}
+	defer root.Close()
 
 	// Write alias file atomically
-	if err := fsutil.AtomicWriteFile(aliasPath, []byte(version+"\n"), 0644); err != nil {
+	if err := fsutil.AtomicWriteRoot(root, name, []byte(version+"\n"), 0644); err != nil {
 		return fmt.Errorf("write alias file: %w", err)
 	}
 
@@ -42,9 +43,15 @@ func (m *AliasManager) Set(name, version string) error {
 
 // Get retrieves the version for an alias.
 func (m *AliasManager) Get(name string) (string, error) {
-	aliasPath := m.paths.AliasFile(name)
-
-	data, err := os.ReadFile(aliasPath)
+	if err := m.validateAliasName(name); err != nil {
+		return "", err
+	}
+	root, err := m.paths.OpenDataDir(m.paths.Alias, false)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	data, err := root.ReadFile(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("alias not found: %s", name)
@@ -87,9 +94,15 @@ func (m *AliasManager) Resolve(nameOrVersion string, maxDepth int) (string, erro
 
 // Delete removes an alias.
 func (m *AliasManager) Delete(name string) error {
-	aliasPath := m.paths.AliasFile(name)
-
-	if err := os.Remove(aliasPath); err != nil {
+	if err := m.validateAliasName(name); err != nil {
+		return err
+	}
+	root, err := m.paths.OpenDataDir(m.paths.Alias, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if err := root.Remove(name); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("alias not found: %s", name)
 		}
@@ -103,7 +116,20 @@ func (m *AliasManager) Delete(name string) error {
 func (m *AliasManager) List() (map[string]string, error) {
 	aliases := make(map[string]string)
 
-	entries, err := os.ReadDir(m.paths.Alias)
+	root, err := m.paths.OpenDataDir(m.paths.Alias, false)
+	if os.IsNotExist(err) {
+		return aliases, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return aliases, nil
@@ -130,8 +156,8 @@ func (m *AliasManager) List() (map[string]string, error) {
 
 // Exists checks if an alias exists.
 func (m *AliasManager) Exists(name string) bool {
-	aliasPath := m.paths.AliasFile(name)
-	return fsutil.Exists(aliasPath)
+	_, err := m.Get(name)
+	return err == nil
 }
 
 // GetDefault returns the default alias.
@@ -146,26 +172,7 @@ func (m *AliasManager) SetDefault(version string) error {
 
 // validateAliasName validates an alias name.
 func (m *AliasManager) validateAliasName(name string) error {
-	if name == "" {
-		return fmt.Errorf("alias name cannot be empty")
-	}
-
-	// Check for invalid characters
-	if strings.ContainsAny(name, "/\\:*?\"<>|") {
-		return fmt.Errorf("alias name contains invalid characters: %s", name)
-	}
-
-	// Check if name starts with dot
-	if strings.HasPrefix(name, ".") {
-		return fmt.Errorf("alias name cannot start with dot: %s", name)
-	}
-
-	// Check for path traversal
-	if filepath.Clean(name) != name || strings.Contains(name, "..") {
-		return fmt.Errorf("invalid alias name: %s", name)
-	}
-
-	return nil
+	return fsutil.ValidateName(name)
 }
 
 // ResolveVersionOrAlias resolves a version string or alias to a concrete version.

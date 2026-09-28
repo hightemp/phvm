@@ -262,6 +262,30 @@ false positives. Existing findings are not suppressed by this configuration.
 Release packaging checks known vulnerabilities before building artifacts.
 Go versions in CI and release builds are read from `go.mod`.
 
+Integrity checks stop installation on a SHA256 mismatch, malformed Composer
+checksum, or invalid/revoked GPG signature. Composer is downloaded to a unique
+staging file and published only after verification; failures preserve the
+previous PHAR. Concurrent failed downloads cannot change a verified PHAR.
+
+PHP signatures use a fresh keyring from
+`https://www.php.net/distributions/php-keyring.gpg`, independently of the source
+mirror, in an isolated GPG home. Personal keys and configuration are not used.
+With `verify.gpg_fallback_sha256 = true`, an unavailable GPG tool, missing
+signature, or unavailable keyring can fall back to successful SHA256 verification.
+An invalid signature always stops installation. Set the fallback option to
+`false` to require GPG; setting `verify.gpg = false` explicitly disables it.
+Installation metadata records the actual verification result, skip reason and
+signing fingerprint.
+
+Managed version paths require a complete `X.Y.Z` version (optional `v` or `php-`
+prefixes are normalized). Alias/profile names use portable ASCII letters,
+digits, dots, underscores and hyphens; traversal, reserved device names and
+leading/trailing dots are rejected. Managed directories and installation
+configuration paths cannot be redirected through symlinks. The `current` link
+must point to a registered installation. HTTP diagnostics remove URL userinfo
+and redact token/password/key/signature parameters throughout error chains and
+the application logger.
+
 ### Release
 
 `VERSION` contains the next release version in `X.Y.Z` format, without a `v`
@@ -437,4 +461,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 - Inspired by [nvm](https://github.com/nvm-sh/nvm) for Node.js
 - PHP source from [php.net](https://www.php.net/)
 - Extensions from [PECL](https://pecl.php.net/)
-

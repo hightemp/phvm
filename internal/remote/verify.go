@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -81,83 +82,88 @@ func (v *Verifier) ComputeSHA256(filePath string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// VerifyGPG verifies the GPG signature of a file.
+// ErrGPGUnavailable indicates that a signature could not be checked.
+var ErrGPGUnavailable = errors.New("GPG verification unavailable")
+
+// VerifyGPG verifies using a fresh isolated keyring from the PHP trust anchor.
 func (v *Verifier) VerifyGPG(ctx context.Context, filePath, ascPath, keyringURL string) error {
-	if !v.gpgEnabled {
-		log.Debug("GPG verification disabled")
-		return nil
-	}
-
-	// Check if gpg is available
-	if !v.IsGPGAvailable() {
-		if v.gpgFallback {
-			log.Warn("GPG not available, skipping signature verification")
-			return nil
-		}
-		return fmt.Errorf("GPG not available")
-	}
-
-	// Download keyring if needed
-	keyringPath, err := v.ensureKeyring(ctx, keyringURL)
-	if err != nil {
-		if v.gpgFallback {
-			log.Warn("Failed to get GPG keyring: %v", err)
-			return nil
-		}
-		return fmt.Errorf("get keyring: %w", err)
-	}
-
-	// Download signature if not cached
-	if !fsutil.Exists(ascPath) {
-		return fmt.Errorf("signature file not found: %s", ascPath)
-	}
-
-	log.Debug("Verifying GPG signature...")
-
-	// Import keyring
-	importCmd := exec.CommandContext(ctx, "gpg", "--import", keyringPath)
-	importCmd.Stderr = nil
-	importCmd.Stdout = nil
-	if err := importCmd.Run(); err != nil {
-		log.Debug("GPG keyring import failed: %v", err)
-		// Continue anyway, key might already be imported
-	}
-
-	// Verify signature
-	verifyCmd := exec.CommandContext(ctx, "gpg", "--verify", ascPath, filePath)
-	output, err := verifyCmd.CombinedOutput()
-	if err != nil {
-		if v.gpgFallback {
-			log.Warn("GPG verification failed: %v", err)
-			log.Debug("GPG output: %s", string(output))
-			return nil
-		}
-		return fmt.Errorf("GPG verification failed: %w\nOutput: %s", err, string(output))
-	}
-
-	log.Success("GPG signature verified")
-	return nil
+	_, err := v.verifyGPG(ctx, filePath, ascPath, keyringURL)
+	return err
 }
 
-// ensureKeyring downloads the keyring if not cached.
-func (v *Verifier) ensureKeyring(ctx context.Context, keyringURL string) (string, error) {
-	keyringPath := filepath.Join(v.cacheDir, "php-keyring.gpg")
-
-	if fsutil.Exists(keyringPath) {
-		return keyringPath, nil
+func (v *Verifier) verifyGPG(ctx context.Context, filePath, ascPath, keyringURL string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-
-	log.Debug("Downloading PHP keyring...")
-
-	downloader := NewDownloader(v.client, v.cacheDir)
-	downloader.SetShowProgress(false)
-
-	_, err := downloader.Download(ctx, keyringURL, "php-keyring.gpg")
+	if !v.gpgEnabled {
+		return "", fmt.Errorf("%w: disabled", ErrGPGUnavailable)
+	}
+	if !v.IsGPGAvailable() {
+		return "", fmt.Errorf("%w: gpg is not installed", ErrGPGUnavailable)
+	}
+	if !fsutil.Exists(ascPath) {
+		return "", fmt.Errorf("%w: signature file is missing", ErrGPGUnavailable)
+	}
+	if keyringURL != PHPKeyringURL {
+		return "", fmt.Errorf("untrusted PHP keyring URL")
+	}
+	home, err := os.MkdirTemp("", "phvm-gpg-*")
 	if err != nil {
 		return "", err
 	}
-
-	return keyringPath, nil
+	defer os.RemoveAll(home)
+	keyring := filepath.Join(home, "php-keyring.gpg")
+	downloader := NewDownloader(v.client, home)
+	downloader.SetShowProgress(false)
+	if err := downloader.DownloadToPath(ctx, PHPKeyringURL, keyring); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("%w: fetch PHP keyring: %v", ErrGPGUnavailable, err)
+	}
+	options := []string{"--batch", "--no-tty", "--no-options", "--homedir", home}
+	importArgs := append(append([]string{}, options...), "--import", keyring)
+	output, err := exec.CommandContext(ctx, "gpg", importArgs...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("import trusted PHP keyring: %w: %s", err, output)
+	}
+	verifyArgs := append(append([]string{}, options...), "--status-fd", "1", "--verify", ascPath, filePath)
+	output, err = exec.CommandContext(ctx, "gpg", verifyArgs...).Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("invalid GPG signature: %w: %s", err, output)
+	}
+	signer := ""
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "[GNUPG:]" {
+			continue
+		}
+		switch fields[1] {
+		case "BADSIG", "ERRSIG", "NO_PUBKEY", "REVKEYSIG", "KEYREVOKED", "EXPSIG", "SIGEXPIRED":
+			return "", fmt.Errorf("GPG rejected signature: %s", fields[1])
+		}
+		if fields[1] == "VALIDSIG" {
+			if len(fields) < 11 {
+				return "", fmt.Errorf("incomplete GPG signature status")
+			}
+			fingerprint := fields[2]
+			if len(fingerprint) != 40 && len(fingerprint) != 64 {
+				return "", fmt.Errorf("invalid GPG signer fingerprint")
+			}
+			if _, err := hex.DecodeString(fingerprint); err != nil {
+				return "", fmt.Errorf("invalid GPG signer fingerprint")
+			}
+			signer = strings.ToUpper(fingerprint)
+		}
+	}
+	if signer != "" {
+		log.Success("GPG signature verified")
+		return signer, nil
+	}
+	return "", fmt.Errorf("GPG did not report a valid signature")
 }
 
 // IsGPGAvailable checks if gpg is available on the system.
@@ -171,6 +177,8 @@ type VerifyResult struct {
 	SHA256Verified bool
 	GPGVerified    bool
 	GPGSkipped     bool
+	GPGFingerprint string
+	GPGSkipReason  string
 	Errors         []error
 }
 
@@ -185,43 +193,45 @@ func (v *Verifier) Verify(ctx context.Context, filePath, sha256sum, ascPath, key
 	}
 	result.SHA256Verified = true
 
-	// GPG verification (optional)
-	if v.gpgEnabled {
-		if fsutil.Exists(ascPath) {
-			err := v.VerifyGPG(ctx, filePath, ascPath, keyringURL)
-			if err != nil {
-				result.Errors = append(result.Errors, err)
-				if !v.gpgFallback {
-					return result, fmt.Errorf("GPG verification failed: %w", err)
-				}
-			} else {
-				result.GPGVerified = true
-			}
-		} else {
-			log.Debug("No signature file found, skipping GPG verification")
-			result.GPGSkipped = true
-		}
-	} else {
-		result.GPGSkipped = true
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
+	if !v.gpgEnabled {
+		result.GPGSkipped = true
+		result.GPGSkipReason = "disabled by configuration"
+		return result, nil
+	}
+	fingerprint, err := v.verifyGPG(ctx, filePath, ascPath, keyringURL)
+	if err != nil {
+		result.Errors = append(result.Errors, err)
+		if v.gpgFallback && errors.Is(err, ErrGPGUnavailable) {
+			result.GPGSkipped = true
+			result.GPGSkipReason = err.Error()
+			log.Warn("GPG verification skipped: %s", result.GPGSkipReason)
+			return result, nil
+		}
+		return result, err
+	}
+	result.GPGVerified = true
+	result.GPGFingerprint = fingerprint
 
 	return result, nil
 }
 
 // DownloadAndVerify downloads a file and verifies its integrity.
-func (v *Verifier) DownloadAndVerify(ctx context.Context, info *TarballInfo, keyringURL string) (string, error) {
+func (v *Verifier) DownloadAndVerify(ctx context.Context, info *TarballInfo, keyringURL string) (string, *VerifyResult, error) {
 	downloader := NewDownloader(v.client, v.cacheDir)
 
 	// Download tarball
 	tarballPath, err := downloader.Download(ctx, info.URL, info.Filename)
 	if err != nil {
-		return "", fmt.Errorf("download tarball: %w", err)
+		return "", nil, fmt.Errorf("download tarball: %w", err)
 	}
 
 	// Download signature
 	ascFilename := info.Filename + ".asc"
 	ascPath := filepath.Join(v.cacheDir, ascFilename)
-	if info.ASCURL != "" {
+	if v.gpgEnabled && info.ASCURL != "" {
 		_, err = downloader.Download(ctx, info.ASCURL, ascFilename)
 		if err != nil {
 			log.Debug("Failed to download signature: %v", err)
@@ -232,12 +242,12 @@ func (v *Verifier) DownloadAndVerify(ctx context.Context, info *TarballInfo, key
 	// Verify
 	result, err := v.Verify(ctx, tarballPath, info.SHA256, ascPath, keyringURL)
 	if err != nil {
-		return "", err
+		return "", result, err
 	}
 
 	if !result.SHA256Verified {
-		return "", fmt.Errorf("SHA256 verification failed")
+		return "", nil, fmt.Errorf("SHA256 verification failed")
 	}
 
-	return tarballPath, nil
+	return tarballPath, result, nil
 }

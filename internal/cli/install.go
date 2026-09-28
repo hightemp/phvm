@@ -88,6 +88,11 @@ func runInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	log.Success("Resolved to PHP %s", version)
+	version, err = paths.CheckVersionPath(version)
+	if err != nil {
+		log.Error("Unsafe PHP installation path: %v", err)
+		os.Exit(1)
+	}
 
 	// Notify about dependencies that will be built
 	if doctor.GetOpenSSLMajorVersion() >= 3 {
@@ -135,7 +140,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 		verifier.SetGPGEnabled(false)
 	}
 
-	tarballPath, err := verifier.DownloadAndVerify(ctx, tarball, api.KeyringURL())
+	tarballPath, verification, err := verifier.DownloadAndVerify(ctx, tarball, api.KeyringURL())
 	if err != nil {
 		log.Error("Download/verification failed: %v", err)
 		os.Exit(1)
@@ -178,8 +183,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 
 	// Save metadata
 	duration := time.Since(startTime)
-	gpgVerified := !installSkipVerify && verifier.IsGPGAvailable()
-	if err := builder.SaveMetadata(version, tarball.URL, tarball.SHA256, gpgVerified, duration); err != nil {
+	if err := builder.SaveMetadata(version, tarball.URL, tarball.SHA256, verification, duration); err != nil {
 		log.Warn("Failed to save metadata: %v", err)
 	}
 

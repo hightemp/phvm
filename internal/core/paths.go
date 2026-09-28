@@ -167,9 +167,11 @@ func (p *Paths) EnsureDirectories() error {
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		root, err := p.OpenDataDir(dir, true)
+		if err != nil {
 			return err
 		}
+		_ = root.Close()
 	}
 
 	return nil

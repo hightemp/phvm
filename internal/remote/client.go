@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 // Client is an HTTP client with retry support.
@@ -70,7 +72,7 @@ func NewClient(opts ClientOptions) *Client {
 func (c *Client) Get(ctx context.Context, url string) (*http.Response, error) {
 	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", redact.Error(err, url))
 	}
 
 	req.Header.Set("User-Agent", c.userAgent)
@@ -78,7 +80,7 @@ func (c *Client) Get(ctx context.Context, url string) (*http.Response, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
+		return nil, fmt.Errorf("execute request: %w", redact.Error(err, url))
 	}
 
 	return resp, nil
@@ -88,7 +90,7 @@ func (c *Client) Get(ctx context.Context, url string) (*http.Response, error) {
 func (c *Client) GetJSON(ctx context.Context, url string) (*http.Response, error) {
 	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", redact.Error(err, url))
 	}
 
 	req.Header.Set("User-Agent", c.userAgent)
@@ -96,7 +98,7 @@ func (c *Client) GetJSON(ctx context.Context, url string) (*http.Response, error
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
+		return nil, fmt.Errorf("execute request: %w", redact.Error(err, url))
 	}
 
 	return resp, nil
@@ -121,14 +123,14 @@ func (c *Client) Download(ctx context.Context, url string) (io.ReadCloser, int64
 func (c *Client) Head(ctx context.Context, url string) (*http.Response, error) {
 	req, err := retryablehttp.NewRequestWithContext(ctx, "HEAD", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", redact.Error(err, url))
 	}
 
 	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
+		return nil, fmt.Errorf("execute request: %w", redact.Error(err, url))
 	}
 
 	return resp, nil

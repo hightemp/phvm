@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/hightemp/phvm/internal/deps"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/remote"
 )
 
@@ -86,7 +88,11 @@ type BuildOptions struct {
 func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
 	startTime := time.Now()
 
-	version := opts.Version
+	version, err := b.paths.CheckVersionPath(opts.Version)
+	if err != nil {
+		return err
+	}
+	opts.Version = version
 	log.Info("Building PHP %s", version)
 
 	// Set options
@@ -452,15 +458,35 @@ opcache.enable_cli=0
 }
 
 // SaveMetadata saves build metadata.
-func (b *Builder) SaveMetadata(version, sourceURL, sha256 string, gpgVerified bool, duration time.Duration) error {
+func (b *Builder) SaveMetadata(version, sourceURL, sha256 string, verification *remote.VerifyResult, duration time.Duration) error {
+	if verification == nil || !verification.SHA256Verified {
+		return fmt.Errorf("missing successful SHA256 verification")
+	}
+	var err error
+	version, err = b.paths.CheckVersionPath(version)
+	if err != nil {
+		return err
+	}
 	metadata := core.NewMetadata(version)
-	metadata.SourceURL = sourceURL
+	metadata.SourceURL = redact.URL(sourceURL)
 	metadata.SHA256 = sha256
-	metadata.GPGVerified = gpgVerified
+	metadata.SHA256Verified = verification.SHA256Verified
+	metadata.GPGVerified = verification.GPGVerified
+	metadata.GPGSkipped = verification.GPGSkipped
+	metadata.GPGSkipReason = verification.GPGSkipReason
+	metadata.GPGFingerprint = verification.GPGFingerprint
 	metadata.ConfigureFlags = MergeFlags(b.profile, b.customFlags)
 	metadata.BuildProfile = b.profile.Name
 	metadata.BuildDuration = int64(duration.Seconds())
 
-	metadataPath := b.paths.VersionMetadata(version)
-	return metadata.Save(metadataPath)
+	root, err := b.paths.OpenVersion(version, true)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsutil.AtomicWriteRoot(root, ".phvm-metadata.json", data, 0644)
 }

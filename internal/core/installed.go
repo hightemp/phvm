@@ -1,10 +1,9 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-
-	"github.com/hightemp/phvm/internal/fsutil"
 )
 
 // InstalledManager manages installed PHP versions.
@@ -19,7 +18,20 @@ func NewInstalledManager(paths *Paths) *InstalledManager {
 
 // List returns all installed versions.
 func (m *InstalledManager) List() ([]string, error) {
-	entries, err := os.ReadDir(m.paths.Versions)
+	root, err := m.paths.OpenDataDir(m.paths.Versions, false)
+	if os.IsNotExist(err) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}, nil
@@ -36,8 +48,7 @@ func (m *InstalledManager) List() ([]string, error) {
 		version := entry.Name()
 
 		// Verify it's a valid installation (has php binary)
-		phpBin := filepath.Join(m.paths.VersionBin(version), PHPBinary())
-		if fsutil.Exists(phpBin) {
+		if m.IsInstalled(version) {
 			versions = append(versions, version)
 		}
 	}
@@ -48,13 +59,13 @@ func (m *InstalledManager) List() ([]string, error) {
 
 // IsInstalled checks if a version is installed.
 func (m *InstalledManager) IsInstalled(version string) bool {
-	versionDir := m.paths.VersionDir(version)
-	if !fsutil.Exists(versionDir) {
+	root, err := m.paths.OpenVersion(version, false)
+	if err != nil {
 		return false
 	}
-
-	phpBin := filepath.Join(m.paths.VersionBin(version), PHPBinary())
-	return fsutil.Exists(phpBin)
+	defer root.Close()
+	info, err := root.Stat(filepath.Join("bin", PHPBinary()))
+	return err == nil && info.Mode().IsRegular()
 }
 
 // GetLatestInstalled returns the latest installed version matching a pattern.
@@ -69,12 +80,25 @@ func (m *InstalledManager) GetLatestInstalled(pattern string) (string, error) {
 
 // Remove removes an installed version.
 func (m *InstalledManager) Remove(version string) error {
-	versionDir := m.paths.VersionDir(version)
-	return os.RemoveAll(versionDir)
+	version, err := NormalizeInstalledVersion(version)
+	if err != nil {
+		return err
+	}
+	root, err := m.paths.OpenDataDir(m.paths.Versions, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.RemoveAll(version)
 }
 
 // GetVersionInfo returns information about an installed version.
 func (m *InstalledManager) GetVersionInfo(version string) (*VersionInfo, error) {
+	var err error
+	version, err = m.paths.CheckVersionPath(version)
+	if err != nil {
+		return nil, err
+	}
 	if !m.IsInstalled(version) {
 		return nil, nil
 	}
@@ -89,11 +113,15 @@ func (m *InstalledManager) GetVersionInfo(version string) (*VersionInfo, error) 
 	}
 
 	// Load metadata if exists
-	metadataPath := m.paths.VersionMetadata(version)
-	if fsutil.Exists(metadataPath) {
-		metadata, err := LoadMetadata(metadataPath)
-		if err == nil {
-			info.Metadata = metadata
+	root, err := m.paths.OpenVersion(version, false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	if data, err := root.ReadFile(".phvm-metadata.json"); err == nil {
+		var metadata Metadata
+		if json.Unmarshal(data, &metadata) == nil {
+			info.Metadata = &metadata
 		}
 	}
 

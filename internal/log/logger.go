@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/fatih/color"
+
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 // Level represents log level.
@@ -109,6 +111,7 @@ func (l *Logger) output(c *color.Color, prefix, format string, args ...interface
 	if l.prefix != "" {
 		msg = l.prefix + msg
 	}
+	msg = redact.Text(msg)
 
 	if prefix != "" {
 		if l.noColor {
@@ -166,21 +169,21 @@ func (l *Logger) Verbose(format string, args ...interface{}) {
 func (l *Logger) Print(format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	fmt.Fprintf(l.out, format+"\n", args...)
+	fmt.Fprintln(l.out, redact.Text(fmt.Sprintf(format, args...)))
 }
 
 // Printf prints a plain message without newline.
 func (l *Logger) Printf(format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	fmt.Fprintf(l.out, format, args...)
+	fmt.Fprint(l.out, redact.Text(fmt.Sprintf(format, args...)))
 }
 
 // Println prints values with newline.
 func (l *Logger) Println(args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	fmt.Fprintln(l.out, args...)
+	fmt.Fprint(l.out, redact.Text(fmt.Sprintln(args...)))
 }
 
 // PrintVersions prints a list of versions with markers.

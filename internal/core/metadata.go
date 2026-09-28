@@ -16,6 +16,10 @@ type Metadata struct {
 	SourceURL      string                 `json:"source_url"`
 	SHA256         string                 `json:"sha256"`
 	GPGVerified    bool                   `json:"gpg_verified"`
+	SHA256Verified bool                   `json:"sha256_verified"`
+	GPGSkipped     bool                   `json:"gpg_skipped"`
+	GPGSkipReason  string                 `json:"gpg_skip_reason,omitempty"`
+	GPGFingerprint string                 `json:"gpg_fingerprint,omitempty"`
 	ConfigureFlags []string               `json:"configure_flags"`
 	BuildProfile   string                 `json:"build_profile"`
 	BuildDuration  int64                  `json:"build_duration_seconds"`

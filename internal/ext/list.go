@@ -22,6 +22,11 @@ type Extension struct {
 
 // ListInstalled lists installed extensions for a PHP version.
 func ListInstalled(paths *core.Paths, phpVersion string) ([]Extension, error) {
+	var err error
+	phpVersion, err = paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return nil, err
+	}
 	phpDir := paths.VersionDir(phpVersion)
 	phpBin := filepath.Join(phpDir, "bin", core.PHPBinary())
 
@@ -138,6 +143,14 @@ func NewPECLAPI(client *Client) interface {
 
 // Enable enables an extension.
 func Enable(paths *core.Paths, phpVersion, extName string) error {
+	if err := fsutil.ValidateName(extName); err != nil {
+		return err
+	}
+	var err error
+	phpVersion, err = paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	confD := paths.VersionConfD(phpVersion)
 	confDMgr := ini.NewConfDManager(confD)
 
@@ -164,6 +177,14 @@ func Enable(paths *core.Paths, phpVersion, extName string) error {
 
 // Disable disables an extension.
 func Disable(paths *core.Paths, phpVersion, extName string) error {
+	if err := fsutil.ValidateName(extName); err != nil {
+		return err
+	}
+	var err error
+	phpVersion, err = paths.CheckVersionPath(phpVersion)
+	if err != nil {
+		return err
+	}
 	confD := paths.VersionConfD(phpVersion)
 	confDMgr := ini.NewConfDManager(confD)
 

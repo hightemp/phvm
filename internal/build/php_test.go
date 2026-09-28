@@ -10,6 +10,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hightemp/phvm/internal/core"
+	"github.com/hightemp/phvm/internal/remote"
 )
 
 func TestConfigureFailureReportsOutput(t *testing.T) {
@@ -53,6 +57,50 @@ func TestConfigureFailureReportsOutput(t *testing.T) {
 			}
 			if withLog && (!strings.Contains(log.String(), "The libcurl check failed") || !strings.Contains(log.String(), "early output")) {
 				t.Errorf("configure output was not written to log: %q", log.String())
+			}
+		})
+	}
+}
+
+func TestSaveMetadataRejectsUnsafeVersion(t *testing.T) {
+	dir := t.TempDir()
+	p := core.NewPaths(filepath.Join(dir, "phvm"))
+	if err := p.EnsureDirectories(); err != nil {
+		t.Fatal(err)
+	}
+	result := &remote.VerifyResult{SHA256Verified: true, GPGSkipped: true, GPGSkipReason: "disabled"}
+	if err := NewBuilder(p, nil).SaveMetadata("../../../outside", "https://example.invalid", "checksum", result, time.Second); err == nil {
+		t.Error("SaveMetadata accepted unsafe version")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "outside", ".phvm-metadata.json")); !os.IsNotExist(err) {
+		t.Errorf("metadata written outside root: %v", err)
+	}
+}
+
+func TestSaveMetadataUsesActualVerification(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		result remote.VerifyResult
+	}{
+		{"verified", remote.VerifyResult{SHA256Verified: true, GPGVerified: true, GPGFingerprint: "0123456789ABCDEF0123456789ABCDEF01234567"}},
+		{"disabled", remote.VerifyResult{SHA256Verified: true, GPGSkipped: true, GPGSkipReason: "disabled"}},
+		{"unavailable", remote.VerifyResult{SHA256Verified: true, GPGSkipped: true, GPGSkipReason: "gpg unavailable"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := core.NewPaths(t.TempDir())
+			b := NewBuilder(p, nil)
+			if err := b.SaveMetadata("8.3.30", "https://user:secret@example.invalid/php?token=private&version=8.3", "checksum", &tt.result, time.Second); err != nil {
+				t.Fatal(err)
+			}
+			metadata, err := core.LoadMetadata(p.VersionMetadata("8.3.30"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metadata.GPGVerified != tt.result.GPGVerified || metadata.GPGSkipped != tt.result.GPGSkipped || metadata.GPGFingerprint != tt.result.GPGFingerprint || metadata.GPGSkipReason != tt.result.GPGSkipReason || !metadata.SHA256Verified {
+				t.Errorf("metadata does not match verification: %+v", metadata)
+			}
+			if strings.Contains(metadata.SourceURL, "private") || strings.Contains(metadata.SourceURL, "user:secret") {
+				t.Errorf("metadata exposes URL secrets: %s", metadata.SourceURL)
 			}
 		})
 	}

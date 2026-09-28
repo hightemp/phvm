@@ -295,8 +295,11 @@ type TarballInfo struct {
 
 // KeyringURL returns the URL to the PHP keyring.
 func (api *PHPNetAPI) KeyringURL() string {
-	return fmt.Sprintf("%s/distributions/php-keyring.gpg", api.client.Mirror())
+	return PHPKeyringURL
 }
+
+// PHPKeyringURL is the trust anchor, independent of configured source mirrors.
+const PHPKeyringURL = "https://www.php.net/distributions/php-keyring.gpg"
 
 // DefaultPHPNetAPI returns a PHPNetAPI with the default client.
 var DefaultPHPNetAPI = NewPHPNetAPI(DefaultClient)

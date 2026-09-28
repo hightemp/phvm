@@ -259,22 +259,52 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	}
 	cmd.Env = env
 
+	var tail configureOutputTail
+	var output io.Writer = &tail
 	if b.logWriter != nil {
-		cmd.Stdout = b.logWriter
-		cmd.Stderr = b.logWriter
-	} else {
-		// Show configure output for verbose logging
-		if log.Default().Level() >= log.LevelVerbose {
-			cmd.Stdout = os.Stderr
-			cmd.Stderr = os.Stderr
-		}
+		output = io.MultiWriter(b.logWriter, &tail)
+	} else if log.Default().Level() >= log.LevelVerbose {
+		output = io.MultiWriter(os.Stderr, &tail)
 	}
+	cmd.Stdout = output
+	cmd.Stderr = output
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("configure failed: %w", err)
+		details := ""
+		lines := strings.Split(strings.TrimSpace(string(tail.data)), "\n")
+		if len(lines) > 8 {
+			lines = lines[len(lines)-8:]
+		}
+		if text := strings.TrimSpace(strings.Join(lines, "\n")); text != "" {
+			details = "\n" + text
+		}
+		configLog := filepath.Join(buildDir, "config.log")
+		if fsutil.Exists(configLog) {
+			details += "\nSee " + configLog + " for compiler/linker details"
+		}
+		return fmt.Errorf("configure failed: %w%s", err, details)
 	}
 
 	return nil
+}
+
+// configureOutputTail retains bounded output while the full log is streamed.
+type configureOutputTail struct {
+	data []byte
+}
+
+func (w *configureOutputTail) Write(p []byte) (int, error) {
+	const limit = 16 * 1024
+	n := len(p)
+	if len(p) >= limit {
+		w.data = append(w.data[:0], p[len(p)-limit:]...)
+	} else {
+		if len(w.data)+len(p) > limit {
+			w.data = w.data[len(w.data)+len(p)-limit:]
+		}
+		w.data = append(w.data, p...)
+	}
+	return n, nil
 }
 
 func stripSystemInclude(buildDir string) error {

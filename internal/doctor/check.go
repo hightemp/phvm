@@ -4,6 +4,7 @@ package doctor
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -18,6 +19,7 @@ type CheckResult struct {
 	Version  string
 	Required bool
 	HelpText string
+	Problem  string
 }
 
 // DoctorResult holds all check results.
@@ -151,7 +153,7 @@ func checkCommand(name string, required bool, helpText string) CheckResult {
 	return result
 }
 
-// checkPkgConfig checks if a library is available via pkg-config.
+// checkPkgConfig checks metadata and compiles/links a probe for known libraries.
 func checkPkgConfig(name string, required bool) CheckResult { //nolint:unparam // required kept for API consistency
 	result := CheckResult{
 		Name:     name + " (lib)",
@@ -164,13 +166,25 @@ func checkPkgConfig(name string, required bool) CheckResult { //nolint:unparam /
 		return result
 	}
 
-	result.Found = true
-
 	// Get version
 	cmd = exec.Command("pkg-config", "--modversion", name)
 	if output, err := cmd.Output(); err == nil {
 		result.Version = strings.TrimSpace(string(output))
 	}
+
+	cmd = exec.Command("pkg-config", "--variable=pcfiledir", name)
+	if output, err := cmd.Output(); err == nil {
+		if dir := strings.TrimSpace(string(output)); dir != "" {
+			result.Path = filepath.Join(dir, name+".pc")
+		}
+	}
+
+	if err := checkLibraryLink(name); err != nil {
+		result.Problem = err.Error()
+		result.HelpText += "; check the pkg-config file and CC/CPPFLAGS/CFLAGS/LDFLAGS environment"
+		return result
+	}
+	result.Found = true
 
 	return result
 }
@@ -600,7 +614,15 @@ func FormatResults(result *DoctorResult) string {
 			}
 			sb.WriteString("\n")
 		} else {
-			sb.WriteString(" - NOT FOUND\n")
+			if check.Problem != "" {
+				sb.WriteString(" - UNUSABLE\n")
+				sb.WriteString("    " + strings.ReplaceAll(check.Problem, "\n", "\n    ") + "\n")
+				if check.Path != "" {
+					sb.WriteString(fmt.Sprintf("    pkg-config file: %s\n", check.Path))
+				}
+			} else {
+				sb.WriteString(" - NOT FOUND\n")
+			}
 			if check.HelpText != "" {
 				sb.WriteString(fmt.Sprintf("    %s\n", check.HelpText))
 			}
@@ -614,10 +636,10 @@ func FormatResults(result *DoctorResult) string {
 	} else if result.AllOK {
 		sb.WriteString("All required dependencies are installed!\n")
 		if result.Warnings > 0 {
-			sb.WriteString(fmt.Sprintf("Optional missing: %d\n", result.Warnings))
+			sb.WriteString(fmt.Sprintf("Optional missing or unusable: %d\n", result.Warnings))
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("Missing: %d required, %d optional\n", result.Errors, result.Warnings))
+		sb.WriteString(fmt.Sprintf("Missing or unusable: %d required, %d optional\n", result.Errors, result.Warnings))
 	}
 
 	// Add install command suggestion if anything is missing

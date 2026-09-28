@@ -247,6 +247,12 @@ Before installing PHP, ensure you have the required build dependencies:
 phvm doctor
 ```
 
+For libraries discovered through `pkg-config`, `doctor` compiles and links a
+small C program using `CC`, `CPPFLAGS`, `CFLAGS`, and `LDFLAGS`. It does not run
+the program. A `.pc` file alone is not enough: missing headers, libraries, or
+linker dependencies are reported as `UNUSABLE`, with the compiler error and
+the selected `.pc` file path.
+
 ### Ubuntu/Debian
 
 ```bash
@@ -317,6 +323,38 @@ sudo dnf install -y \
 ### Build fails with missing dependencies
 
 Run `phvm doctor` to identify missing dependencies, then install them using your package manager.
+
+When `configure` fails, phvm prints the last output lines and the path to
+`config.log`, which contains the compiler and linker errors. The full output
+is also saved in `~/.phvm/logs/install-<version>.log` (or `$PHVM_DIR/logs`).
+
+### libcurl is reported by pkg-config but PHP cannot link it
+
+`configure: error: The libcurl check failed` can occur when an old
+`/usr/local/lib/pkgconfig/libcurl.pc` remains after its library was removed.
+Having the curl command or a runtime `libcurl.so.4` does not supply the headers
+and `libcurl.so` linker file required for a build.
+
+On Ubuntu/Debian, install the development package:
+
+```bash
+sudo apt-get install libcurl4-openssl-dev
+```
+
+If Homebrew tools or stale `/usr/local` metadata interfere with system
+dependencies, select the system tools and pkg-config directories for this
+command. For Ubuntu/Debian on amd64:
+
+```bash
+PATH="/usr/bin:/bin:$PATH" \
+PKG_CONFIG_PATH= \
+PKG_CONFIG_LIBDIR="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig" \
+phvm install 8.5.11 --jobs 2
+```
+
+Use the same environment with `phvm doctor` to check the dependencies before
+building. On other architectures, replace `x86_64-linux-gnu` with the system's
+multiarch directory name (`cc -print-multiarch`).
 
 ### Permission denied errors
 

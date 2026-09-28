@@ -187,8 +187,8 @@ func FilterFlagsForVersion(flags []string, phpVersion string) []string {
 		return flags
 	}
 	var major, minor int
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 
 	// PHP < 8.1 with OpenSSL 3.x: curl extension links against system OpenSSL
 	// which conflicts with our custom OpenSSL 1.1. Disable curl.

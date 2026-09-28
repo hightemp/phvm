@@ -99,7 +99,7 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 	composerPath := filepath.Join(binDir, "composer")
 
 	if !fsutil.Exists(composerPath) {
-		return fmt.Errorf("Composer not installed for PHP %s", phpVersion)
+		return fmt.Errorf("composer not installed for PHP %s", phpVersion)
 	}
 
 	phpBin := filepath.Join(binDir, core.PHPBinary())
@@ -126,7 +126,7 @@ func (m *Manager) Enable(phpVersion string) error {
 	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
 
 	if !fsutil.Exists(pharPath) {
-		return fmt.Errorf("Composer not installed globally. Run: phvm composer install --global")
+		return fmt.Errorf("composer not installed globally; run: phvm composer install --global")
 	}
 
 	if !fsutil.Exists(phpBin) {

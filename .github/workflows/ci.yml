@@ -16,12 +16,34 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: go.mod
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        run: make lint
+
+  vulnerabilities:
+    name: Known vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          version: latest
+          go-version-file: go.mod
+      - name: Run govulncheck
+        run: make govulncheck
+
+  security:
+    name: Source security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run gosec
+        run: make gosec
 
   test:
     name: Test
@@ -30,14 +52,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ["1.22"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go }}
+          go-version-file: go.mod
 
       - name: Get dependencies
         run: go mod download
@@ -50,6 +71,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: go test --% -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Test release automation
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-release
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -71,7 +96,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: go.mod
 
       - name: Build
         run: go build -v ./cmd/phvm

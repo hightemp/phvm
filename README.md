@@ -203,7 +203,7 @@ flags = ["--with-pear"]
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.27.1 or later (the required version is declared in `go.mod`)
 - Git
 
 ### Build
@@ -237,6 +237,30 @@ make lint
 # Format code
 make fmt
 ```
+
+### Security checks
+
+```bash
+# Known vulnerabilities in dependencies and the Go standard library
+make govulncheck
+
+# Potential security issues in application source code
+make gosec
+
+# Run both checks
+make security
+```
+
+The tools run through `go run` with versions pinned in the Makefile:
+govulncheck `v1.8.0`, gosec `v2.29.0`, and golangci-lint `v2.14.0`.
+No separate global installation is required. The first run downloads the
+tools and their dependencies to the Go module cache.
+
+`govulncheck` and `gosec` run as separate CI jobs and return a nonzero exit
+status when findings remain. Gosec findings require review and can include
+false positives. Existing findings are not suppressed by this configuration.
+Release packaging checks known vulnerabilities before building artifacts.
+Go versions in CI and release builds are read from `go.mod`.
 
 ### Release
 

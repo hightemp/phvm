@@ -24,8 +24,8 @@ func parseVersionParts(version string) (int, int) {
 		return 0, 0
 	}
 	var major, minor int
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	return major, minor
 }
 

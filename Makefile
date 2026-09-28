@@ -7,8 +7,11 @@ LDFLAGS := -ldflags "-s -w -X github.com/hightemp/phvm/internal/cli.Version=$(VE
 
 GO := go
 GOFLAGS := -trimpath
+GOLANGCI_LINT_VERSION := v2.14.0
+GOVULNCHECK_VERSION := v1.8.0
+GOSEC_VERSION := v2.29.0
 
-.PHONY: all build clean test test-release release lint fmt vet install uninstall help
+.PHONY: all build build-all clean test test-release release lint fmt vet verify security govulncheck gosec install uninstall help
 
 # Default target
 all: lint test build
@@ -26,6 +29,7 @@ build-all:
 	GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_darwin_amd64 ./cmd/phvm
 	GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_darwin_arm64 ./cmd/phvm
 	GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_windows_amd64.exe ./cmd/phvm
+	GOOS=windows GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_windows_arm64.exe ./cmd/phvm
 
 # Clean build artifacts
 clean:
@@ -53,11 +57,12 @@ test-coverage:
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-# Run linter
+# Run the pinned linter without requiring a globally installed binary
 lint:
 	@echo "Running linter..."
-	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
-	golangci-lint run ./...
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) config verify
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) fmt --diff
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
 
 # Format code
 fmt:
@@ -108,10 +113,14 @@ dev:
 generate:
 	$(GO) generate ./...
 
-# Check for security issues
-security:
-	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@latest)
-	gosec ./...
+# Check known vulnerabilities and source security issues with pinned tools
+security: govulncheck gosec
+
+govulncheck:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+gosec:
+	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) ./...
 
 # Update dependencies
 update-deps:
@@ -141,5 +150,7 @@ help:
 	@echo "  run            Build and run"
 	@echo "  dev            Run with go run (use ARGS=... for arguments)"
 	@echo "  security       Run security checks"
+	@echo "  govulncheck    Check known dependency and Go vulnerabilities"
+	@echo "  gosec          Check source code for security issues"
 	@echo "  update-deps    Update dependencies"
 	@echo "  help           Show this help"

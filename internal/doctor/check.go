@@ -607,10 +607,10 @@ func FormatResults(result *DoctorResult) string {
 			}
 		}
 
-		sb.WriteString(fmt.Sprintf("%s %s", status, check.Name))
+		_, _ = fmt.Fprintf(&sb, "%s %s", status, check.Name)
 		if check.Found {
 			if check.Version != "" {
-				sb.WriteString(fmt.Sprintf(" (%s)", check.Version))
+				_, _ = fmt.Fprintf(&sb, " (%s)", check.Version)
 			}
 			sb.WriteString("\n")
 		} else {
@@ -618,13 +618,13 @@ func FormatResults(result *DoctorResult) string {
 				sb.WriteString(" - UNUSABLE\n")
 				sb.WriteString("    " + strings.ReplaceAll(check.Problem, "\n", "\n    ") + "\n")
 				if check.Path != "" {
-					sb.WriteString(fmt.Sprintf("    pkg-config file: %s\n", check.Path))
+					_, _ = fmt.Fprintf(&sb, "    pkg-config file: %s\n", check.Path)
 				}
 			} else {
 				sb.WriteString(" - NOT FOUND\n")
 			}
 			if check.HelpText != "" {
-				sb.WriteString(fmt.Sprintf("    %s\n", check.HelpText))
+				_, _ = fmt.Fprintf(&sb, "    %s\n", check.HelpText)
 			}
 		}
 	}
@@ -636,17 +636,17 @@ func FormatResults(result *DoctorResult) string {
 	} else if result.AllOK {
 		sb.WriteString("All required dependencies are installed!\n")
 		if result.Warnings > 0 {
-			sb.WriteString(fmt.Sprintf("Optional missing or unusable: %d\n", result.Warnings))
+			_, _ = fmt.Fprintf(&sb, "Optional missing or unusable: %d\n", result.Warnings)
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf("Missing or unusable: %d required, %d optional\n", result.Errors, result.Warnings))
+		_, _ = fmt.Fprintf(&sb, "Missing or unusable: %d required, %d optional\n", result.Errors, result.Warnings)
 	}
 
 	// Add install command suggestion if anything is missing
 	if result.Errors > 0 || result.Warnings > 0 {
 		if installCmd := GetInstallCommand(result); installCmd != "" {
 			sb.WriteString("\nTo install missing packages, run:\n")
-			sb.WriteString(fmt.Sprintf("  %s\n", installCmd))
+			_, _ = fmt.Fprintf(&sb, "  %s\n", installCmd)
 		}
 	}
 

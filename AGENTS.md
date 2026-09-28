@@ -4,7 +4,7 @@ This document provides guidelines for AI agents working on the phvm (PHP Version
 
 ## Project Overview
 
-phvm is a cross-platform PHP version manager written in Go 1.22. It installs PHP from source, manages multiple versions via symlinks, and handles extensions and php.ini configuration. The CLI is built with [cobra](https://github.com/spf13/cobra).
+phvm is a cross-platform PHP version manager written in Go 1.27.1. The required Go version is declared in `go.mod` and used by CI and release builds. It installs PHP from source, manages multiple versions via symlinks, and handles extensions and php.ini configuration. The CLI is built with [cobra](https://github.com/spf13/cobra).
 
 ## Build & Development Commands
 
@@ -31,15 +31,18 @@ make update-deps              # Update all dependencies
 ## Linting & Formatting
 
 ```bash
-make lint                     # Run golangci-lint (installs if missing)
+make lint                     # Run pinned golangci-lint via go run
 make fmt                      # Format code with go fmt
 make vet                      # Run go vet
+make govulncheck               # Check known Go and dependency vulnerabilities
+make gosec                     # Check source security issues
+make security                 # Run govulncheck and gosec
 
 # Direct golangci-lint (if installed)
 golangci-lint run ./...
 ```
 
-Enabled linters: `errcheck`, `gosimple`, `govet`, `ineffassign`, `staticcheck`, `unused`, `gofmt`, `goimports`, `misspell`, `unconvert`, `unparam`, `revive`.
+Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck` (includes former `gosimple` checks), `unused`, `misspell`, `unconvert`, `unparam`, `revive`. Formatters: `gofmt`, `goimports`. The configuration uses golangci-lint v2.
 
 ## Testing
 

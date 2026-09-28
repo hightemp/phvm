@@ -26,6 +26,8 @@ type Dependency struct {
 }
 
 // DepsManager manages dependencies for PHP builds.
+//
+//nolint:revive // DepsManager is more descriptive than just Manager.
 type DepsManager struct {
 	paths      *core.Paths
 	downloader *remote.Downloader
@@ -171,8 +173,8 @@ func parseVersion(version string) (int, int) {
 		return 0, 0
 	}
 	var major, minor int
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	return major, minor
 }
 

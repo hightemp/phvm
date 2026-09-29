@@ -12,7 +12,6 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
-	"github.com/hightemp/phvm/internal/ini"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
 )
@@ -137,6 +136,10 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	if err != nil {
 		return fmt.Errorf("find source directory: %w", err)
 	}
+	moduleName, err := packageModule(buildDir, opts.Name)
+	if err != nil {
+		return err
+	}
 
 	// Run phpize
 	log.Info("Running phpize...")
@@ -168,37 +171,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("get extension directory: %w", err)
 	}
 
-	// Verify the installed .so file exists
-	soFile := filepath.Join(extDir, opts.Name+".so")
-	if !fsutil.Exists(soFile) {
-		// Try to find it with different name
-		entries, _ := os.ReadDir(extDir)
-		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), opts.Name) && strings.HasSuffix(e.Name(), ".so") {
-				soFile = filepath.Join(extDir, e.Name())
-				break
-			}
-		}
+	// Record the exact provided module, not a similarly named binary. Binary/ABI
+	// publication validation is tracked separately by PHVM-11.
+	binary := filepath.Join(extDir, extensionBinary(moduleName))
+	if rel, err := filepath.Rel(i.paths.VersionDir(opts.PHPVersion), binary); err == nil && filepath.IsLocal(rel) {
+		binary = rel
 	}
-	_ = soFile // soFile is used for verification, actual loading uses extension name
-
-	// Create ini file
-	confD := i.paths.VersionConfD(opts.PHPVersion)
-	confDMgr := ini.NewConfDManager(confD)
-
-	isZend := isZendExtension(opts.Name)
-	if err := confDMgr.CreateExtensionIni(opts.Name, opts.Name+".so", 20, isZend); err != nil {
-		return fmt.Errorf("create ini file: %w", err)
-	}
-
-	// Update metadata
-	metadataPath := i.paths.VersionMetadata(opts.PHPVersion)
-	if fsutil.Exists(metadataPath) {
-		metadata, err := core.LoadMetadata(metadataPath)
-		if err == nil {
-			metadata.AddExtension(opts.Name, version, true)
-			_ = metadata.Save(metadataPath)
-		}
+	if err := recordExtension(i.paths, opts.PHPVersion, opts.Name, moduleName, version, binary, downloadURL); err != nil {
+		return fmt.Errorf("record extension identity: %w", err)
 	}
 
 	log.Success("Extension %s %s installed successfully", opts.Name, version)
@@ -305,41 +285,14 @@ func isZendExtension(name string) bool {
 	return false
 }
 
-// Uninstall removes an extension.
+// Uninstall removes only the exact extension's ini/metadata. Binary removal is handled separately.
 func (i *Installer) Uninstall(ctx context.Context, name, phpVersion string) error {
-	if err := fsutil.ValidateName(name); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var err error
-	phpVersion, err = i.paths.CheckVersionPath(phpVersion)
-	if err != nil {
+	if err := removeExact(i.paths, phpVersion, name); err != nil {
 		return err
 	}
-	log.Info("Uninstalling extension %s", name)
-
-	// Remove ini file
-	confD := i.paths.VersionConfD(phpVersion)
-	confDMgr := ini.NewConfDManager(confD)
-
-	files, _ := confDMgr.List()
-	for _, f := range files {
-		if strings.Contains(f.Name, name) {
-			if err := confDMgr.Remove(f.Name); err != nil {
-				log.Warn("Failed to remove ini file: %v", err)
-			}
-		}
-	}
-
-	// Update metadata
-	metadataPath := i.paths.VersionMetadata(phpVersion)
-	if fsutil.Exists(metadataPath) {
-		metadata, err := core.LoadMetadata(metadataPath)
-		if err == nil {
-			metadata.RemoveExtension(name)
-			_ = metadata.Save(metadataPath)
-		}
-	}
-
 	log.Success("Extension %s uninstalled", name)
 	return nil
 }

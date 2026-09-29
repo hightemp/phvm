@@ -133,10 +133,38 @@ leaves the previous current version intact.
 | Command | Description |
 |---------|-------------|
 | `phvm ext install <name>` | Install PECL extension |
-| `phvm ext remove <name>` | Remove extension |
+| `phvm ext uninstall <name>` | Remove the exact extension's ini/metadata |
 | `phvm ext enable <name>` | Enable extension |
 | `phvm ext disable <name>` | Disable extension |
-| `phvm ext ls` | List installed extensions |
+| `phvm ext list` | List built-in, enabled, disabled, missing and broken extensions |
+
+Extension identities match exact module or recorded PECL package names, ignoring
+case. `redis` never selects `rediscluster`. Loading identity comes from active
+`extension` / `zend_extension` directives; an ini filename or comment alone
+does not establish ownership. Custom ini names and disabled `.ini.disabled`
+files are supported. The provided module from [PECL package.xml](https://pear.php.net/manual/en/guide.developers.package2.pecl.php)
+is recorded with its exact binary and ini paths in installation metadata.
+
+```bash
+phvm ext list --php 8.3
+phvm ext disable redis --php prod
+phvm ext enable redis --php prod
+```
+
+`ext list` joins metadata, ini directives, extension-directory files and PHP's
+loaded modules. A separate [PHP `-n -m` query](https://www.php.net/manual/en/features.commandline.options.php)
+identifies built-in modules. The output distinguishes `builtin`, `enabled`,
+`disabled`, `missing` (no available binary) and `broken` (for example an enabled
+directive whose module is not loaded). Loaded state and configured enabled
+state are tracked separately. External library directories are inspected read-only.
+
+Missing exact identities return an error and a nonzero CLI status. Multiple
+loading ini files or an ini shared by multiple extensions block mutation; edit
+such files explicitly. Legacy metadata without a module field uses its exact
+package name, and does not guess a different module from the ini filename.
+Uninstall currently removes the matching ini file and metadata entry; the
+extension binary remains on disk. Installation does not yet validate the
+binary's ABI before enabling it.
 
 ### Configuration
 

@@ -51,15 +51,19 @@ var extListCmd = &cobra.Command{
 
 		fmt.Printf("Extensions for PHP %s:\n\n", phpVersion)
 		for _, e := range extensions {
-			status := "enabled"
-			if !e.Enabled {
-				status = "disabled"
-			}
+			status := e.State
 			version := ""
 			if e.Version != "" {
 				version = " (" + e.Version + ")"
 			}
-			fmt.Printf("[%s] %s%s\n", status, e.Name, version)
+			fmt.Printf("[%s] %s%s", status, e.Name, version)
+			if e.Module != "" && e.Module != e.Name {
+				fmt.Printf(" (module: %s)", e.Module)
+			}
+			if e.Problem != "" {
+				fmt.Printf(" - %s", e.Problem)
+			}
+			fmt.Println()
 		}
 	},
 }

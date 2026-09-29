@@ -154,7 +154,11 @@ func TestPHPFlagsUseInstalledResolver(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := os.WriteFile(marker, []byte("fixture"), 0600); err != nil {
+			content := "fixture"
+			if tt.extension {
+				content = "extension=redis.so\n"
+			}
+			if err := os.WriteFile(marker, []byte(content), 0600); err != nil {
 				t.Fatal(err)
 			}
 			args := append([]string{"--phvm-dir", p.Root}, tt.args...)

@@ -32,6 +32,10 @@ type ExtMetadata struct {
 	InstalledAt time.Time `json:"installed_at"`
 	Enabled     bool      `json:"enabled"`
 	SourceURL   string    `json:"source_url,omitempty"`
+	Module      string    `json:"module,omitempty"`
+	Binary      string    `json:"binary,omitempty"`
+	IniFile     string    `json:"ini_file,omitempty"`
+	Zend        bool      `json:"zend,omitempty"`
 }
 
 // NewMetadata creates a new Metadata instance.

@@ -400,13 +400,22 @@ make test-release
 Check the version and profile you intend to build:
 
 ```bash
+phvm doctor
 phvm doctor --php 8.5.11 --profile common
 phvm doctor --php 8.5 --profile minimal
 phvm doctor --php 8.5.11 --profile common --configure="--without-curl"
 ```
 
-`--php` accepts an uninstalled `X.Y` branch or `X.Y.Z` release without contacting
-php.net; it defaults to the PHP 8.3 baseline. A branch checks that branch's
+By default, `phvm doctor` checks the **current** PHP selected in the effective
+`PHVM_DIR` (`--phvm-dir` takes precedence). `--php current` selects it explicitly.
+A missing, broken or unsafe current produces exit code 1 with instructions to
+use `phvm use <version>` or pass `--php X.Y[.Z]`; it never falls back to another
+version or a default alias. Checking current does not switch it or run its PHP
+binary.
+
+`--php` also accepts an uninstalled `X.Y` branch or `X.Y.Z` release without
+contacting php.net. An explicit version overrides current, including when no
+current is set. A branch checks that branch's
 requirements; use a full release to inspect its existing private dependency
 directory. The profile and configure flags follow the configuration precedence
 above. `minimal` disables default extensions; enabling an extension through

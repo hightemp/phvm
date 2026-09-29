@@ -44,7 +44,11 @@ func fakeDoctorTools(t *testing.T, compilerOK bool) string {
 
 func TestDoctorFailsForUnusableRequiredLibraries(t *testing.T) {
 	fakeDoctorTools(t, false)
-	result := Check()
+	// This test checks common-profile libraries independently of current selection.
+	result, err := CheckFor(context.Background(), Options{PHPVersion: "8.3", Profile: "common"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.AllOK || result.Errors == 0 {
 		t.Errorf("common profile accepted unusable libraries: %+v", result)
 	}
@@ -54,6 +58,43 @@ func TestDoctorFailsForUnusableRequiredLibraries(t *testing.T) {
 				t.Errorf("%s must be required in common profile", name)
 			}
 		}
+	}
+}
+
+func TestDefaultVersionUsesCurrentInSelectedRoot(t *testing.T) {
+	fakeDoctorTools(t, true)
+	p := core.NewPaths(t.TempDir())
+	if err := p.EnsureDirectories(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(p.VersionBin("8.5.11"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.VersionBin("8.5.11"), core.PHPBinary()), []byte("fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.NewCurrentManager(p).Set("8.5.11"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PHVM_DIR", p.Root)
+	if result, err := Check(); err != nil || result.PHPVersion != "8.5.11" {
+		t.Fatalf("default Check ignored PHVM_DIR/current: %+v %v", result, err)
+	}
+	result, err := CheckFor(context.Background(), Options{Paths: p, Profile: "minimal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PHPVersion != "8.5.11" {
+		t.Errorf("default version ignores current: %s", result.PHPVersion)
+	}
+	if err := core.NewCurrentManager(p).Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := CheckFor(context.Background(), Options{Paths: p, Profile: "minimal"}); err == nil || result != nil {
+		t.Errorf("missing current replaced with baseline: %+v %v", result, err)
+	}
+	if result, err := Check(); err == nil || result != nil {
+		t.Errorf("Check hid current error: %+v %v", result, err)
 	}
 }
 

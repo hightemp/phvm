@@ -13,6 +13,7 @@ import (
 	"github.com/hightemp/phvm/internal/build"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/deps"
+	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
 
@@ -27,8 +28,18 @@ type Options struct {
 
 // CheckFor checks the selected profile and version without downloading or building PHP.
 func CheckFor(ctx context.Context, opts Options) (*DoctorResult, error) {
-	if opts.PHPVersion == "" {
-		opts.PHPVersion = "8.3"
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if opts.Paths == nil {
+		opts.Paths = core.NewPaths("")
+	}
+	if opts.PHPVersion == "" || strings.EqualFold(strings.TrimSpace(opts.PHPVersion), "current") {
+		version, err := core.NewCurrentManager(opts.Paths).Get()
+		if err != nil {
+			return nil, fmt.Errorf("resolve current PHP: %w; select an installed version with phvm use or pass --php X.Y.Z", redact.Error(err, ""))
+		}
+		opts.PHPVersion = version
 	}
 	if opts.Profile == "" {
 		opts.Profile = "common"
@@ -42,9 +53,6 @@ func CheckFor(ctx context.Context, opts Options) (*DoctorResult, error) {
 	}
 	if version.Patch < 0 {
 		version.Patch = 0
-	}
-	if opts.Paths == nil {
-		opts.Paths = core.NewPaths("")
 	}
 	builder := build.NewBuilder(opts.Paths, nil)
 	builder.SetProfile(opts.Profile)

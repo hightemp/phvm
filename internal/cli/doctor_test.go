@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/hightemp/phvm/internal/core"
 )
 
 // The PHP archive/configure fixture never uses C; these tools isolate preflight
@@ -48,6 +50,98 @@ func TestDoctorAcceptsVersionAndProfile(t *testing.T) {
 	out, err := exec.Command(bin, "--phvm-dir", t.TempDir(), "doctor", "--php", "8.5.11", "--profile", "minimal").CombinedOutput()
 	if strings.Contains(string(out), "unknown flag") || !strings.Contains(string(out), "PHP 8.5.11") || !strings.Contains(string(out), "profile: minimal") {
 		t.Errorf("doctor cannot diagnose the selected PHP/profile: %v %s", err, out)
+	}
+}
+
+func TestDoctorUsesCurrentByDefault(t *testing.T) {
+	withoutConfigEnv(t)
+	bin := buildTestCLI(t)
+	for _, tt := range []struct {
+		name, current, want string
+		corrupt             string
+		args                []string
+		fail                bool
+	}{
+		{name: "current PHP85 uses stricter curl floor", current: "8.5.11", want: "8.5.11", fail: true},
+		{name: "current PHP83 uses its curl floor", current: "8.3.30", want: "8.3.30"},
+		{name: "explicit current", current: "8.5.11", want: "8.5.11", args: []string{"--php", "current"}, fail: true},
+		{name: "explicit version overrides current", current: "8.5.11", want: "8.3.30", args: []string{"--php", "8.3.30"}},
+		{name: "missing current has no fallback", fail: true},
+		{name: "foreign current is rejected", corrupt: "foreign", fail: true},
+		{name: "missing current binary is rejected", corrupt: "missing binary", fail: true},
+		{name: "current regular file is rejected", corrupt: "regular file", fail: true},
+		{name: "explicit version works without current", want: "8.3.30", args: []string{"--php", "8.3.30"}},
+		{name: "explicit version works with broken current", corrupt: "foreign", want: "8.3.30", args: []string{"--php", "8.3.30"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeBuildTools(t)
+			t.Setenv("PHVM_TEST_VERSION_MODULE", "libcurl")
+			t.Setenv("PHVM_TEST_LIBRARY_VERSION", "7.60.0")
+			p := core.NewPaths(t.TempDir())
+			if err := p.EnsureDirectories(); err != nil {
+				t.Fatal(err)
+			}
+			// An installed default alias must not become a substitute for current.
+			for _, v := range []string{"8.3.30", "8.5.11"} {
+				if err := os.MkdirAll(p.VersionBin(v), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(p.VersionBin(v), core.PHPBinary()), []byte("fixture; never executed"), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := core.NewAliasManager(p).Set("default", "8.3.30"); err != nil {
+				t.Fatal(err)
+			}
+			if tt.current != "" {
+				if err := core.NewCurrentManager(p).Set(tt.current); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch tt.corrupt {
+			case "foreign":
+				if err := os.Symlink(filepath.Join(t.TempDir(), "8.5.11"), p.Current); err != nil {
+					t.Fatal(err)
+				}
+			case "missing binary":
+				if err := core.NewCurrentManager(p).Set("8.5.11"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(filepath.Join(p.VersionBin("8.5.11"), core.PHPBinary())); err != nil {
+					t.Fatal(err)
+				}
+			case "regular file":
+				if err := os.WriteFile(p.Current, []byte("preserve-current-marker"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			linkBefore, _ := os.Readlink(p.Current)
+			args := append([]string{"--phvm-dir", p.Root, "doctor", "--profile", "common"}, tt.args...)
+			out, err := exec.Command(bin, args...).CombinedOutput()
+			if (err != nil) != tt.fail {
+				t.Errorf("error=%v wantFail=%v\n%s", err, tt.fail, out)
+			}
+			if tt.want != "" && !strings.Contains(string(out), "PHP "+tt.want+";") {
+				t.Errorf("wrong version diagnosed: %s", out)
+			}
+			if tt.want == "" && (!strings.Contains(string(out), "current") || !strings.Contains(string(out), "--php") || strings.Contains(string(out), "Build environment:")) {
+				t.Errorf("missing current must fail before probes with an actionable message: %s", out)
+			}
+			current, getErr := core.NewCurrentManager(p).Get()
+			if tt.current != "" && (getErr != nil || current != tt.current) {
+				t.Errorf("doctor changed current: %s %v", current, getErr)
+			}
+			linkAfter, _ := os.Readlink(p.Current)
+			if linkAfter != linkBefore {
+				t.Error("doctor modified the current link")
+			}
+			if tt.corrupt == "regular file" {
+				data, err := os.ReadFile(p.Current)
+				if err != nil || string(data) != "preserve-current-marker" {
+					t.Errorf("doctor modified invalid current file: %s %v", data, err)
+				}
+			}
+		})
 	}
 }
 

@@ -103,10 +103,9 @@ func CheckPHPOpenSSLCompatibility(phpVersion string) string {
 	return ""
 }
 
-// Check runs checks for the default PHP 8.3 common profile.
-func Check() *DoctorResult {
-	result, _ := CheckFor(context.Background(), Options{})
-	return result
+// Check runs common-profile checks for current and returns resolution failures.
+func Check() (*DoctorResult, error) {
+	return CheckFor(context.Background(), Options{})
 }
 
 // checkPkgConfig is also used by isolated library regression tests.

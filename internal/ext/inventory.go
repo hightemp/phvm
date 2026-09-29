@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 )
 
@@ -338,7 +338,7 @@ func setEnabled(paths *core.Paths, version, name string, enabled bool) error {
 func phpQuery(ctx context.Context, php string, args ...string) ([]byte, []byte, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, php, args...)
+	cmd := process.CommandContext(probeCtx, php, args...)
 	cmd.WaitDelay = time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

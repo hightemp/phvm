@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/doctor"
 	"github.com/hightemp/phvm/internal/log"
-	"github.com/hightemp/phvm/internal/remote"
 )
 
 // parseVersionParts extracts major and minor version numbers.
@@ -45,7 +43,7 @@ Examples:
   phvm install 8 --profile minimal
   phvm install 8.3 --configure "--with-pdo-mysql"`,
 	Args: cobra.ExactArgs(1),
-	Run:  runInstall,
+	RunE: runInstall,
 }
 
 var (
@@ -67,14 +65,13 @@ func init() {
 	_ = installCmd.Flags().MarkDeprecated("skip-verify", "use --skip-gpg; SHA256 verification is mandatory")
 }
 
-func runInstall(cmd *cobra.Command, args []string) {
+func runInstall(cmd *cobra.Command, args []string) error {
 	versionArg := args[0]
 	paths := GetPaths()
 
 	// Ensure directories exist
 	if err := ensureDirectories(paths); err != nil {
-		log.Error("Failed to create directories: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create directories: %w", err)
 	}
 
 	ctx := cmd.Context()
@@ -85,14 +82,12 @@ func runInstall(cmd *cobra.Command, args []string) {
 	log.Info("Resolving version %s...", versionArg)
 	version, release, err := api.ResolveVersion(ctx, versionArg)
 	if err != nil {
-		log.Error("Failed to resolve version: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to resolve version: %w", err)
 	}
 	log.Success("Resolved to PHP %s", version)
 	version, err = paths.CheckVersionPath(version)
 	if err != nil {
-		log.Error("Unsafe PHP installation path: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("unsafe PHP installation path: %w", err)
 	}
 
 	// Notify about dependencies that will be built
@@ -110,26 +105,23 @@ func runInstall(cmd *cobra.Command, args []string) {
 	if installed.IsInstalled(version) && !installForce {
 		log.Warn("PHP %s is already installed", version)
 		log.Print("Use --force to reinstall")
-		return
+		return nil
 	}
 
 	// Check the selected build environment before downloading source/dependencies.
 	requirements, err := doctor.CheckFor(ctx, doctor.Options{PHPVersion: version, Profile: effectiveConfig.General.DefaultProfile, ConfigFlags: configureBaseFlags, CustomFlags: configureCLIFlags, Paths: paths, GPGRequired: effectiveConfig.Verify.GPG && !effectiveConfig.Verify.GPGFallbackSHA256})
 	if err != nil {
-		log.Error("Build requirements: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("build requirements: %w", err)
 	}
 	if !requirements.AllOK {
 		log.Print("%s", doctor.FormatResults(requirements))
-		log.Error("Build requirements check failed before source download")
-		os.Exit(1)
+		return fmt.Errorf("build requirements check failed before source download")
 	}
 
 	// Get tarball info
 	tarball, err := api.GetTarballInfo(ctx, version)
 	if err != nil {
-		log.Error("Failed to get download info: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to get download info: %w", err)
 	}
 
 	// Download and verify
@@ -137,8 +129,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 
 	tarballPath, verification, err := verifier.DownloadAndVerify(ctx, tarball, api.KeyringURL())
 	if err != nil {
-		log.Error("Download/verification failed: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("download/verification failed: %w", err)
 	}
 
 	// Parse custom configure flags
@@ -147,8 +138,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 	// Build
 	builder := build.NewBuilder(paths, client)
 	if err := builder.SetProfile(effectiveConfig.General.DefaultProfile); err != nil {
-		log.Error("Build profile: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("build profile: %w", err)
 	}
 
 	// Open log file
@@ -175,24 +165,23 @@ func runInstall(cmd *cobra.Command, args []string) {
 	}
 
 	if err := builder.Build(ctx, buildOpts); err != nil {
-		log.Error("Build failed: %v", err)
-		log.Print("Check the log file: %s", logPath)
-		os.Exit(1)
+		return fmt.Errorf("build failed: %w; check the log file: %s", err, logPath)
 	}
 
 	// Set as current if no current version
 	current := core.NewCurrentManager(paths)
 	if !current.IsSet() {
 		if err := current.Set(version); err != nil {
-			log.Warn("Failed to set as current: %v", err)
-		} else {
-			log.Info("Set PHP %s as current", version)
+			return fmt.Errorf("PHP installed but failed to select current: %w", err)
 		}
+		log.Info("Set PHP %s as current", version)
 
 		// Also set as default alias
 		aliases := core.NewAliasManager(paths)
 		if !aliases.Exists("default") {
-			_ = aliases.SetDefault(version)
+			if err := aliases.SetDefault(version); err != nil {
+				return fmt.Errorf("PHP installed but failed to set default alias: %w", err)
+			}
 		}
 	}
 
@@ -201,20 +190,20 @@ func runInstall(cmd *cobra.Command, args []string) {
 
 	// Suppress unused variable warnings
 	_ = release
+	return nil
 }
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall <version>",
 	Short: "Uninstall a PHP version",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		version := args[0]
 		paths := GetPaths()
 
 		installed := core.NewInstalledManager(paths)
 		if !installed.IsInstalled(version) {
-			log.Error("PHP %s is not installed", version)
-			os.Exit(1)
+			return fmt.Errorf("PHP %s is not installed", version)
 		}
 
 		// Check if it's the current version
@@ -226,26 +215,24 @@ var uninstallCmd = &cobra.Command{
 
 			force, _ := cmd.Flags().GetBool("force")
 			if !force {
-				os.Exit(1)
+				return fmt.Errorf("cannot uninstall current PHP; switch versions or pass --force")
 			}
 			// Clear current if forcing
-			_ = current.Clear()
+			if err := current.Clear(); err != nil {
+				return fmt.Errorf("clear current PHP: %w", err)
+			}
 		}
 
 		log.Info("Uninstalling PHP %s...", version)
 		if err := installed.RemoveContext(cmd.Context(), version); err != nil {
-			log.Error("Failed to uninstall: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to uninstall: %w", err)
 		}
 
 		log.Success("PHP %s uninstalled", version)
+		return nil
 	},
 }
 
 func init() {
 	uninstallCmd.Flags().Bool("force", false, "Force uninstall even if current")
 }
-
-// Suppress unused import warning
-var _ = context.Background
-var _ = remote.DefaultClient

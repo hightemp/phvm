@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +15,8 @@ var lsCmd = &cobra.Command{
 	Use:     "ls",
 	Aliases: []string{"list"},
 	Short:   "List installed PHP versions",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		installed := core.NewInstalledManager(paths)
 		current := core.NewCurrentManager(paths)
@@ -21,20 +24,28 @@ var lsCmd = &cobra.Command{
 
 		versions, err := installed.List()
 		if err != nil {
-			log.Error("Failed to list versions: %v", err)
-			return
+			return fmt.Errorf("list installed PHP versions: %w", err)
 		}
 
 		if len(versions) == 0 {
-			log.Print("No PHP versions installed")
-			log.Print("Run 'phvm install <version>' to install a version")
-			return
+			fmt.Fprintln(cmd.OutOrStdout(), "No PHP versions installed")
+			fmt.Fprintln(cmd.OutOrStdout(), "Run 'phvm install <version>' to install a version")
+			return nil
 		}
 
-		currentVer, _ := current.Get()
-		defaultVer, _ := aliases.GetDefault()
+		currentVer, err := current.Get()
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read current PHP: %w", err)
+		}
+		defaultVer, err := aliases.GetDefault()
+		if err != nil && !errors.Is(err, core.ErrAliasNotFound) {
+			return fmt.Errorf("read default alias: %w", err)
+		}
 
-		log.Default().PrintVersions(versions, currentVer, defaultVer)
+		logger := log.New(cmd.OutOrStdout(), log.LevelNormal)
+		logger.SetNoColor(!effectiveConfig.General.Color)
+		logger.PrintVersions(versions, currentVer, defaultVer)
+		return nil
 	},
 }
 
@@ -45,7 +56,8 @@ var lsRemoteCmd = &cobra.Command{
 
 By default, shows the latest version for each supported branch.
 Use --all to attempt to fetch more versions (may be slow).`,
-	Run: func(cmd *cobra.Command, args []string) {
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		all, _ := cmd.Flags().GetBool("all")
 		limit, _ := cmd.Flags().GetInt("limit")
 
@@ -57,19 +69,17 @@ Use --all to attempt to fetch more versions (may be slow).`,
 			log.Info("Fetching all available versions...")
 			versions, err := api.GetAvailableVersions(cmd.Context(), limit)
 			if err != nil {
-				log.Error("Failed to fetch versions: %v", err)
-				return
+				return fmt.Errorf("fetch PHP versions: %w", err)
 			}
 
 			for _, v := range versions {
-				fmt.Println(v)
+				fmt.Fprintln(cmd.OutOrStdout(), v)
 			}
 		} else {
 			log.Info("Fetching latest versions...")
 			releases, err := api.GetLatestReleases(cmd.Context())
 			if err != nil {
-				log.Error("Failed to fetch releases: %v", err)
-				return
+				return fmt.Errorf("fetch PHP releases: %w", err)
 			}
 
 			// Sort by major version
@@ -81,15 +91,19 @@ Use --all to attempt to fetch more versions (may be slow).`,
 
 			for _, major := range majors {
 				release := releases[major]
-				fmt.Printf("PHP %s: %s\n", major, release.Version)
+				fmt.Fprintf(cmd.OutOrStdout(), "PHP %s: %s\n", major, release.Version)
 			}
 
 			// Show supported versions
-			supported, _ := api.GetSupportedVersions(cmd.Context())
+			supported, err := api.GetSupportedVersions(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("fetch supported PHP branches: %w", err)
+			}
 			if len(supported) > 0 {
-				fmt.Println("\nSupported branches:", supported)
+				fmt.Fprintln(cmd.OutOrStdout(), "\nSupported branches:", supported)
 			}
 		}
+		return nil
 	},
 }
 

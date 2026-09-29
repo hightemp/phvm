@@ -229,6 +229,41 @@ does not have a transaction guarantee.
 | `phvm cache clear [--downloads|--sources|--build|--all]` | Clear cache while preserving installed Composer |
 | `phvm init <shell>` | Print shell init script |
 
+## CLI automation
+
+Results, reports, help and shell initialization scripts go to **stdout**.
+Progress, warnings and errors go to **stderr**. Always check the exit status:
+a diagnostic report such as `doctor` can contain results even when checks fail.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Command completed successfully |
+| `1` | Invalid arguments or a configuration, filesystem, network, build or editor error |
+| `130` | Interrupted with Ctrl+C / SIGINT |
+| `143` | Terminated with SIGTERM on Unix |
+
+`current` checks that its PHP binary exists and is executable on Unix. `which`
+accepts one filename in the selected installation's `bin` directory, checks that
+it is a regular executable, and prints its absolute path. Missing binaries,
+unsafe paths and corrupt current/alias storage return errors.
+
+```bash
+php_bin="$(phvm which php)" || exit $?
+"$php_bin" --version
+```
+
+Interrupting a build cancels its command context, stops its subprocesses, runs
+transaction cleanup and releases the state lock so installation can be retried.
+On Unix, build and probe tools run in a separate process group; cancellation
+kills that group. Children that deliberately detach into another group are
+outside this mechanism. On Windows, cancellation uses `taskkill /T /F` with a
+bounded wait. Windows has a separate native subprocess test in CI; compilation
+on Linux does not verify its runtime behavior or native PHP installation.
+
+`ini open` accepts a quoted executable and arguments in `EDITOR` or `VISUAL`,
+for example `EDITOR='code --wait'`. Unix editors keep the terminal's foreground
+process group; cancellation stops the editor itself.
+
 ## Updating Composer
 
 ```bash

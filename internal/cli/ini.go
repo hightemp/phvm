@@ -10,6 +10,7 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/ini"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 var iniCmd = &cobra.Command{
@@ -29,33 +30,34 @@ Subcommands:
 var iniPathCmd = &cobra.Command{
 	Use:   "path",
 	Short: "Show PHP configuration paths",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
 
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w", err)
 		}
 
 		pathInfo := ini.GetPaths(paths, version)
-		fmt.Printf("php.ini:  %s\n", pathInfo.PHPIniPath)
-		fmt.Printf("conf.d:   %s\n", pathInfo.ScanDir)
+		fmt.Fprintf(cmd.OutOrStdout(), "php.ini:  %s\n", pathInfo.PHPIniPath)
+		fmt.Fprintf(cmd.OutOrStdout(), "conf.d:   %s\n", pathInfo.ScanDir)
+		return nil
 	},
 }
 
 var iniOpenCmd = &cobra.Command{
 	Use:   "open",
 	Short: "Open php.ini in editor",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
 
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w", err)
 		}
 
 		pathInfo := ini.GetPaths(paths, version)
@@ -75,33 +77,35 @@ var iniOpenCmd = &cobra.Command{
 		}
 
 		if editor == "" {
-			fmt.Printf("php.ini path: %s\n", pathInfo.PHPIniPath)
-			log.Warn("No editor found. Set EDITOR environment variable.")
-			return
+			return fmt.Errorf("no editor found; set EDITOR or VISUAL; php.ini: %s", pathInfo.PHPIniPath)
 		}
 
-		editorCmd := exec.Command(editor, pathInfo.PHPIniPath)
+		editorCmd, err := toolchain.Current("PHVM_EDITOR="+editor).InteractiveCommand(cmd.Context(), "PHVM_EDITOR", editor, pathInfo.PHPIniPath)
+		if err != nil {
+			return err
+		}
 		editorCmd.Stdin = os.Stdin
-		editorCmd.Stdout = os.Stdout
-		editorCmd.Stderr = os.Stderr
+		editorCmd.Stdout = cmd.OutOrStdout()
+		editorCmd.Stderr = cmd.ErrOrStderr()
 
 		if err := editorCmd.Run(); err != nil {
-			log.Error("Failed to open editor: %v", err)
+			return fmt.Errorf("open editor: %w", err)
 		}
+		return nil
 	},
 }
 
 var iniListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List conf.d files",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
 
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w", err)
 		}
 
 		confD := paths.VersionConfD(version)
@@ -109,13 +113,12 @@ var iniListCmd = &cobra.Command{
 
 		files, err := mgr.List()
 		if err != nil {
-			log.Error("Failed to list files: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to list files: %w", err)
 		}
 
 		if len(files) == 0 {
-			log.Print("No conf.d files")
-			return
+			fmt.Fprintln(cmd.OutOrStdout(), "No conf.d files")
+			return nil
 		}
 
 		for _, f := range files {
@@ -123,8 +126,9 @@ var iniListCmd = &cobra.Command{
 			if !f.Enabled {
 				status = "disabled"
 			}
-			fmt.Printf("[%s] %s\n", status, f.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s\n", status, f.Name)
 		}
+		return nil
 	},
 }
 
@@ -132,26 +136,25 @@ var iniEnableCmd = &cobra.Command{
 	Use:   "enable <name>",
 	Short: "Enable a conf.d file",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
 
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w", err)
 		}
 
 		confD := paths.VersionConfD(version)
 		mgr := ini.NewConfDManager(confD)
 
 		if err := mgr.Enable(name); err != nil {
-			log.Error("Failed to enable: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to enable: %w", err)
 		}
 
 		log.Success("Enabled %s", name)
+		return nil
 	},
 }
 
@@ -159,26 +162,25 @@ var iniDisableCmd = &cobra.Command{
 	Use:   "disable <name>",
 	Short: "Disable a conf.d file",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
 
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w", err)
 		}
 
 		confD := paths.VersionConfD(version)
 		mgr := ini.NewConfDManager(confD)
 
 		if err := mgr.Disable(name); err != nil {
-			log.Error("Failed to disable: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to disable: %w", err)
 		}
 
 		log.Success("Disabled %s", name)
+		return nil
 	},
 }
 
@@ -190,25 +192,26 @@ var iniProfileCmd = &cobra.Command{
 var iniProfileListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available profiles",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		mgr := ini.NewProfileManager(paths)
 
 		profiles, err := mgr.List()
 		if err != nil {
-			log.Error("Failed to list profiles: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to list profiles: %w", err)
 		}
 
 		if len(profiles) == 0 {
-			log.Print("No profiles defined")
-			log.Print("Run 'phvm ini profile save <name>' to save current config as a profile")
-			return
+			fmt.Fprintln(cmd.OutOrStdout(), "No profiles defined")
+			fmt.Fprintln(cmd.OutOrStdout(), "Run 'phvm ini profile save <name>' to save current config as a profile")
+			return nil
 		}
 
 		for _, p := range profiles {
-			fmt.Printf("%s\n", p.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\n", p.Name)
 		}
+		return nil
 	},
 }
 

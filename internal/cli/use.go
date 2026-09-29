@@ -2,12 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hightemp/phvm/internal/core"
+	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/redact"
 )
@@ -54,60 +55,72 @@ Examples:
 }
 
 var currentCmd = &cobra.Command{
-	Use:   "current",
-	Short: "Show the current PHP version",
-	Run: func(cmd *cobra.Command, args []string) {
+	Use: "current", Short: "Show the current PHP version", Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		current := core.NewCurrentManager(paths)
-
-		showPath, _ := cmd.Flags().GetBool("path")
-
 		version, err := current.Get()
 		if err != nil {
-			log.Error("No current version set")
-			log.Print("Run 'phvm use <version>' to set a version")
-			os.Exit(1)
+			return fmt.Errorf("resolve current PHP: %w; run phvm use <version>", err)
 		}
-
+		if _, err := installedBinaryPath(paths, version, core.PHPBinary()); err != nil {
+			return err
+		}
+		showPath, _ := cmd.Flags().GetBool("path")
 		if showPath {
-			path, _ := current.GetPath()
-			fmt.Println(path)
-		} else {
-			fmt.Println(version)
+			path, err := current.GetPath()
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), path)
+			return err
 		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), version)
+		return err
 	},
 }
 
-func init() {
-	currentCmd.Flags().Bool("path", false, "Show the path instead of version")
-}
+func init() { currentCmd.Flags().Bool("path", false, "Show the path instead of version") }
 
 var whichCmd = &cobra.Command{
-	Use:   "which [binary]",
-	Short: "Show path to a PHP binary",
-	Long: `Show the full path to a PHP binary in the current version.
-
-Examples:
-  phvm which           # Shows path to php
-  phvm which php
-  phvm which phpize
-  phvm which php-config`,
-	Run: func(cmd *cobra.Command, args []string) {
+	Use: "which [binary]", Short: "Show path to an existing executable in current PHP", Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
-		current := core.NewCurrentManager(paths)
-
-		binary := "php"
+		version, err := core.NewCurrentManager(paths).Get()
+		if err != nil {
+			return fmt.Errorf("resolve current PHP: %w", err)
+		}
+		binary := core.PHPBinary()
 		if len(args) > 0 {
 			binary = args[0]
+			if binary == "php" {
+				binary = core.PHPBinary()
+			}
 		}
-
-		binPath, err := current.GetBinPath()
+		path, err := installedBinaryPath(paths, version, binary)
 		if err != nil {
-			log.Error("No current version set")
-			os.Exit(1)
+			return err
 		}
-
-		fullPath := filepath.Join(binPath, binary)
-		fmt.Println(fullPath)
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), path)
+		return err
 	},
+}
+
+func installedBinaryPath(paths *core.Paths, version, binary string) (string, error) {
+	if err := fsutil.ValidateName(binary); err != nil {
+		return "", err
+	}
+	root, err := paths.OpenVersion(version, false)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	info, err := root.Lstat(filepath.Join("bin", binary))
+	if err != nil {
+		return "", fmt.Errorf("binary %s is unavailable: %w", binary, err)
+	}
+	if !info.Mode().IsRegular() || runtime.GOOS != "windows" && info.Mode().Perm()&0111 == 0 {
+		return "", fmt.Errorf("binary %s is not a regular executable", binary)
+	}
+	return filepath.Abs(filepath.Join(paths.VersionBin(version), binary))
 }

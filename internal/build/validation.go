@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
@@ -30,7 +30,7 @@ const identityCode = `echo PHP_VERSION, "\n", PHP_PREFIX, "\n", PHP_EXTENSION_DI
 func probePHP(ctx context.Context, env toolchain.Environment, binary string, args ...string) ([]byte, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, binary, args...)
+	cmd := process.CommandContext(probeCtx, binary, args...)
 	cmd.Env = []string(env)
 	cmd.WaitDelay = time.Second
 	var stderr bytes.Buffer

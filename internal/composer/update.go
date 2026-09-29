@@ -3,7 +3,6 @@ package composer
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 )
 
@@ -109,7 +109,7 @@ var composerVersionPattern = regexp.MustCompile(`(?m)^Composer version ([0-9]+\.
 func (m *Manager) composerVersion(ctx context.Context, phpBin, phar string) (*semver.Version, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, phpBin, phar, "--version", "--no-ansi", "--no-interaction", "--no-plugins", "--no-scripts")
+	cmd := process.CommandContext(probeCtx, phpBin, phar, "--version", "--no-ansi", "--no-interaction", "--no-plugins", "--no-scripts")
 	cmd.Dir = m.paths.Root
 	cmd.WaitDelay = time.Second
 	output, err := cmd.CombinedOutput()

@@ -91,13 +91,15 @@ download cleanup; migration errors stop cleanup before files are removed.`,
 var cacheShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show cache location",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
-		log.Print("Cache directory: %s", paths.Cache)
-		log.Print("  Downloads:     %s", paths.Downloads)
-		log.Print("  Sources:       %s", paths.Sources)
-		log.Print("  Build:         %s", paths.Build)
-		log.Print("  Extensions:    %s", paths.Extensions)
+		fmt.Fprintf(cmd.OutOrStdout(), "Cache directory: %s\n", paths.Cache)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Downloads:     %s\n", paths.Downloads)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Sources:       %s\n", paths.Sources)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Build:         %s\n", paths.Build)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Extensions:    %s\n", paths.Extensions)
+		return nil
 	},
 }
 

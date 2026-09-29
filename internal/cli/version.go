@@ -9,7 +9,9 @@ import (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the phvm version",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("phvm version %s (%s)\n", Version, Commit)
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Fprintf(cmd.OutOrStdout(), "phvm version %s (%s)\n", Version, Commit)
+		return nil
 	},
 }

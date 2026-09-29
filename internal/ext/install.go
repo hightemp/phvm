@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/remote"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
@@ -189,7 +189,7 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 
 // extract extracts the tgz file.
 func (i *Installer) extract(ctx context.Context, tgzPath, destDir string) error {
-	cmd := exec.CommandContext(ctx, "tar", "-xzf", tgzPath, "-C", destDir)
+	cmd := process.CommandContext(ctx, "tar", "-xzf", tgzPath, "-C", destDir)
 	if i.logWriter != nil {
 		cmd.Stdout = i.logWriter
 		cmd.Stderr = i.logWriter
@@ -220,7 +220,7 @@ func (i *Installer) findSourceDir(buildDir string) (string, error) {
 
 // runPhpize runs phpize.
 func (i *Installer) runPhpize(ctx context.Context, srcDir, phpize string) error {
-	cmd := exec.CommandContext(ctx, phpize)
+	cmd := process.CommandContext(ctx, phpize)
 	cmd.Dir = srcDir
 	cmd.Env = []string(i.buildEnvironment)
 	if i.logWriter != nil {
@@ -242,7 +242,7 @@ func (i *Installer) runConfigure(ctx context.Context, srcDir, phpConfig string, 
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "./configure", args...)
+	cmd := process.CommandContext(ctx, "./configure", args...)
 	cmd.Dir = srcDir
 	cmd.Env = []string(env)
 	i.actualFlags = append([]string{}, args...)
@@ -256,7 +256,7 @@ func (i *Installer) runConfigure(ctx context.Context, srcDir, phpConfig string, 
 
 // runMake runs make.
 func (i *Installer) runMake(ctx context.Context, srcDir string) error {
-	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", i.jobs))
+	cmd := process.CommandContext(ctx, "make", fmt.Sprintf("-j%d", i.jobs))
 	cmd.Dir = srcDir
 	cmd.Env = []string(i.buildEnvironment)
 	if i.logWriter != nil {

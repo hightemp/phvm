@@ -14,6 +14,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/process"
 )
 
 // Verifier handles integrity verification of downloaded files.
@@ -123,12 +124,12 @@ func (v *Verifier) verifyGPG(ctx context.Context, filePath, ascPath, keyringURL 
 	}
 	options := []string{"--batch", "--no-tty", "--no-options", "--homedir", home}
 	importArgs := append(append([]string{}, options...), "--import", keyring)
-	output, err := exec.CommandContext(ctx, "gpg", importArgs...).CombinedOutput()
+	output, err := process.CommandContext(ctx, "gpg", importArgs...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("import trusted PHP keyring: %w: %s", err, output)
 	}
 	verifyArgs := append(append([]string{}, options...), "--status-fd", "1", "--verify", ascPath, filePath)
-	output, err = exec.CommandContext(ctx, "gpg", verifyArgs...).Output()
+	output, err = process.CommandContext(ctx, "gpg", verifyArgs...).Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 )
 
@@ -50,11 +51,20 @@ func (e Environment) Value(key, fallback string) string {
 
 // Command parses an explicit tool command without invoking a shell.
 func (e Environment) Command(ctx context.Context, key, fallback string, args ...string) (*exec.Cmd, error) {
+	return e.command(ctx, key, fallback, process.CommandContext, args...)
+}
+
+// InteractiveCommand parses an editor command and preserves foreground terminal access.
+func (e Environment) InteractiveCommand(ctx context.Context, key, fallback string, args ...string) (*exec.Cmd, error) {
+	return e.command(ctx, key, fallback, process.InteractiveCommandContext, args...)
+}
+
+func (e Environment) command(ctx context.Context, key, fallback string, newCommand func(context.Context, string, ...string) *exec.Cmd, args ...string) (*exec.Cmd, error) {
 	command, err := SplitArguments(e.Value(key, fallback))
 	if err != nil || len(command) == 0 || command[0] == "" {
 		return nil, fmt.Errorf("invalid %s command", key)
 	}
-	cmd := exec.CommandContext(ctx, command[0], append(command[1:], args...)...)
+	cmd := newCommand(ctx, command[0], append(command[1:], args...)...)
 	cmd.Env = []string(e)
 	cmd.WaitDelay = time.Second
 	return cmd, nil

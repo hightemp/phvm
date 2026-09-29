@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
@@ -15,7 +15,7 @@ import (
 func validateConfiguration(ctx context.Context, php, etc string) error {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, php, "-c", filepath.Join(etc, "php.ini"), "-d", "display_startup_errors=1", "-d", "display_errors=stderr", "-d", "log_errors=0", "-r", `echo "phvm-ini-ok";`)
+	cmd := process.CommandContext(probeCtx, php, "-c", filepath.Join(etc, "php.ini"), "-d", "display_startup_errors=1", "-d", "display_errors=stderr", "-d", "log_errors=0", "-r", `echo "phvm-ini-ok";`)
 	cmd.Env = []string(toolchain.Current("PHPRC="+filepath.Join(etc, "php.ini"), "PHP_INI_SCAN_DIR="+filepath.Join(etc, "conf.d")))
 	cmd.WaitDelay = time.Second
 	var stderr bytes.Buffer

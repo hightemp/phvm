@@ -3,8 +3,9 @@ package cli
 
 import (
 	"context"
-	"os"
-	"os/signal"
+	"errors"
+	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -60,7 +61,7 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 			level = log.LevelDebug
 		}
 
-		logger := log.New(os.Stderr, level)
+		logger := log.New(cmd.ErrOrStderr(), level)
 		logger.SetNoColor(!effectiveConfig.General.Color)
 		log.SetDefault(logger)
 		if commandUsesState(cmd) {
@@ -76,16 +77,46 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 }
 
 // Execute runs the CLI.
-func Execute() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+func Execute() (err error) {
+	ctx, stop := interruptionContext(context.Background())
+	defer stop()
+	// Cobra's help renderer and some result formatters ignore write errors.
+	// Record them so a failed output stream cannot produce a successful exit.
+	out := rootCmd.OutOrStdout()
+	output := &resultWriter{Writer: out}
+	rootCmd.SetOut(output)
+	defer rootCmd.SetOut(out)
 	defer func() {
 		if commandUnlock != nil {
-			_ = commandUnlock()
+			err = errors.Join(err, commandUnlock())
 			commandUnlock = nil
 		}
 	}()
-	return rootCmd.ExecuteContext(ctx)
+	err = rootCmd.ExecuteContext(ctx)
+	if output.err != nil {
+		err = errors.Join(err, fmt.Errorf("write command result: %w", output.err))
+	}
+	var interrupted *interruptionError
+	if errors.As(context.Cause(ctx), &interrupted) {
+		err = errors.Join(interrupted, err)
+	}
+	return err
+}
+
+type resultWriter struct {
+	io.Writer
+	err error
+}
+
+func (w *resultWriter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	if n < len(p) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if w.err == nil {
+		w.err = err
+	}
+	return n, err
 }
 
 func commandUsesState(cmd *cobra.Command) bool {

@@ -152,7 +152,7 @@ func (m *AliasManager) List() (map[string]string, error) {
 		name := entry.Name()
 		version, err := m.Get(name)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read alias %s: %w", name, err)
 		}
 
 		aliases[name] = version

@@ -9,11 +9,12 @@ import (
 	"os"
 
 	"github.com/hightemp/phvm/internal/cli"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 func main() {
 	if err := cli.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", redact.Text(err.Error()))
+		os.Exit(cli.ExitCode(err))
 	}
 }

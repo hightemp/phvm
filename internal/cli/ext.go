@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -27,51 +26,52 @@ Subcommands:
 var extListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List installed extensions",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		phpVersion, _ := cmd.Flags().GetString("php")
 
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		extensions, err := ext.ListInstalledContext(cmd.Context(), paths, phpVersion)
 		if err != nil {
-			log.Error("Failed to list extensions: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to list extensions: %w", err)
 		}
 
 		if len(extensions) == 0 {
-			log.Print("No extensions installed")
-			return
+			fmt.Fprintln(cmd.OutOrStdout(), "No extensions installed")
+			return nil
 		}
 
-		fmt.Printf("Extensions for PHP %s:\n\n", phpVersion)
+		fmt.Fprintf(cmd.OutOrStdout(), "Extensions for PHP %s:\n\n", phpVersion)
 		for _, e := range extensions {
 			status := e.State
 			version := ""
 			if e.Version != "" {
 				version = " (" + e.Version + ")"
 			}
-			fmt.Printf("[%s] %s%s", status, e.Name, version)
+			fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s%s", status, e.Name, version)
 			if e.Module != "" && e.Module != e.Name {
-				fmt.Printf(" (module: %s)", e.Module)
+				fmt.Fprintf(cmd.OutOrStdout(), " (module: %s)", e.Module)
 			}
 			if e.Problem != "" {
-				fmt.Printf(" - %s", e.Problem)
+				fmt.Fprintf(cmd.OutOrStdout(), " - %s", e.Problem)
 			}
-			fmt.Println()
+			fmt.Fprintln(cmd.OutOrStdout())
 		}
+		return nil
 	},
 }
 
 var extListRemoteCmd = &cobra.Command{
 	Use:   "list-remote",
 	Short: "List available PECL extensions",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		client := getClient(paths)
 		api := getPECLAPI(client)
@@ -91,8 +91,7 @@ var extListRemoteCmd = &cobra.Command{
 		}
 
 		if err != nil {
-			log.Error("Failed to list packages: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to list packages: %w", err)
 		}
 
 		if limit > 0 && len(packages) > limit {
@@ -100,12 +99,13 @@ var extListRemoteCmd = &cobra.Command{
 		}
 
 		for _, pkg := range packages {
-			fmt.Println(pkg)
+			fmt.Fprintln(cmd.OutOrStdout(), pkg)
 		}
 
 		if limit > 0 && len(packages) == limit {
-			fmt.Printf("\n(showing first %d results)\n", limit)
+			fmt.Fprintf(cmd.OutOrStdout(), "\n(showing first %d results)\n", limit)
 		}
+		return nil
 	},
 }
 
@@ -119,7 +119,7 @@ Examples:
   phvm ext install redis --version 5.3.7
   phvm ext install mongodb --php 8.3.30`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		extName := args[0]
 		paths := GetPaths()
 
@@ -130,8 +130,7 @@ Examples:
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		client := getClient(paths)
@@ -148,9 +147,9 @@ Examples:
 		}
 
 		if err := installer.Install(cmd.Context(), opts); err != nil {
-			log.Error("Failed to install extension: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to install extension: %w", err)
 		}
+		return nil
 	},
 }
 
@@ -158,7 +157,7 @@ var extUninstallCmd = &cobra.Command{
 	Use:   "uninstall <extension>",
 	Short: "Uninstall an extension",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		extName := args[0]
 		paths := GetPaths()
 
@@ -166,17 +165,16 @@ var extUninstallCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		client := getClient(paths)
 		installer := ext.NewInstaller(paths, client)
 
 		if err := installer.Uninstall(cmd.Context(), extName, phpVersion); err != nil {
-			log.Error("Failed to uninstall extension: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to uninstall extension: %w", err)
 		}
+		return nil
 	},
 }
 
@@ -184,7 +182,7 @@ var extEnableCmd = &cobra.Command{
 	Use:   "enable <extension>",
 	Short: "Enable an extension",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		extName := args[0]
 		paths := GetPaths()
 
@@ -192,16 +190,15 @@ var extEnableCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		if err := ext.EnableContext(cmd.Context(), paths, phpVersion, extName); err != nil {
-			log.Error("Failed to enable extension: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to enable extension: %w", err)
 		}
 
 		log.Success("Enabled %s", extName)
+		return nil
 	},
 }
 
@@ -209,7 +206,7 @@ var extDisableCmd = &cobra.Command{
 	Use:   "disable <extension>",
 	Short: "Disable an extension",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		extName := args[0]
 		paths := GetPaths()
 
@@ -217,16 +214,15 @@ var extDisableCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		if err := ext.DisableContext(cmd.Context(), paths, phpVersion, extName); err != nil {
-			log.Error("Failed to disable extension: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to disable extension: %w", err)
 		}
 
 		log.Success("Disabled %s", extName)
+		return nil
 	},
 }
 

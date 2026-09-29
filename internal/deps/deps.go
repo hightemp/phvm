@@ -12,6 +12,7 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/remote"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
@@ -291,11 +292,11 @@ func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir str
 func (m *DepsManager) extract(ctx context.Context, tarballPath, destDir string) error {
 	var cmd *exec.Cmd
 	if strings.HasSuffix(tarballPath, ".tar.gz") || strings.HasSuffix(tarballPath, ".tgz") {
-		cmd = exec.CommandContext(ctx, "tar", "-xzf", tarballPath, "-C", destDir)
+		cmd = process.CommandContext(ctx, "tar", "-xzf", tarballPath, "-C", destDir)
 	} else if strings.HasSuffix(tarballPath, ".tar.xz") {
-		cmd = exec.CommandContext(ctx, "tar", "-xJf", tarballPath, "-C", destDir)
+		cmd = process.CommandContext(ctx, "tar", "-xJf", tarballPath, "-C", destDir)
 	} else if strings.HasSuffix(tarballPath, ".tar.bz2") {
-		cmd = exec.CommandContext(ctx, "tar", "-xjf", tarballPath, "-C", destDir)
+		cmd = process.CommandContext(ctx, "tar", "-xjf", tarballPath, "-C", destDir)
 	} else {
 		return fmt.Errorf("unsupported archive format: %s", tarballPath)
 	}
@@ -352,7 +353,7 @@ func (m *DepsManager) configure(ctx context.Context, dep Dependency, sourceDir, 
 		args[i] = arg
 	}
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd := process.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = sourceDir
 
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
@@ -366,7 +367,7 @@ func (m *DepsManager) configure(ctx context.Context, dep Dependency, sourceDir, 
 
 // makeDep runs make for a dependency.
 func (m *DepsManager) makeDep(ctx context.Context, dep Dependency, sourceDir, depsDir string) error {
-	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", m.jobs))
+	cmd := process.CommandContext(ctx, "make", fmt.Sprintf("-j%d", m.jobs))
 	cmd.Dir = sourceDir
 
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
@@ -380,7 +381,7 @@ func (m *DepsManager) makeDep(ctx context.Context, dep Dependency, sourceDir, de
 
 // install runs make install.
 func (m *DepsManager) install(ctx context.Context, dep Dependency, sourceDir, depsDir string) error {
-	cmd := exec.CommandContext(ctx, "make", "install")
+	cmd := process.CommandContext(ctx, "make", "install")
 	cmd.Dir = sourceDir
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 

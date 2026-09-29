@@ -1,12 +1,11 @@
 package cli
 
 import (
-	"os"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hightemp/phvm/internal/composer"
-	"github.com/hightemp/phvm/internal/log"
 )
 
 var composerCmd = &cobra.Command{
@@ -24,7 +23,8 @@ Subcommands:
 var composerInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install Composer",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		mgr := composer.NewManager(paths)
 
@@ -33,29 +33,28 @@ var composerInstallCmd = &cobra.Command{
 
 		if global {
 			if err := mgr.InstallGlobal(cmd.Context()); err != nil {
-				log.Error("Failed to install Composer: %v", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to install Composer: %w", err)
 			}
 		} else {
 			var resolveErr error
 			phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 			if resolveErr != nil {
-				log.Error("Failed to resolve installed PHP: %v", resolveErr)
-				os.Exit(1)
+				return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 			}
 
 			if err := mgr.Install(cmd.Context(), phpVersion); err != nil {
-				log.Error("Failed to install Composer: %v", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to install Composer: %w", err)
 			}
 		}
+		return nil
 	},
 }
 
 var composerUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update Composer",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		mgr := composer.NewManager(paths)
 
@@ -63,21 +62,21 @@ var composerUpdateCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		if err := mgr.Update(cmd.Context(), phpVersion); err != nil {
-			log.Error("Failed to update Composer: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to update Composer: %w", err)
 		}
+		return nil
 	},
 }
 
 var composerEnableCmd = &cobra.Command{
 	Use:   "enable",
 	Short: "Enable Composer for current PHP version",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		mgr := composer.NewManager(paths)
 
@@ -85,21 +84,21 @@ var composerEnableCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		if err := mgr.EnableContext(cmd.Context(), phpVersion); err != nil {
-			log.Error("Failed to enable Composer: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to enable Composer: %w", err)
 		}
+		return nil
 	},
 }
 
 var composerDisableCmd = &cobra.Command{
 	Use:   "disable",
 	Short: "Disable Composer for current PHP version",
-	Run: func(cmd *cobra.Command, args []string) {
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 		mgr := composer.NewManager(paths)
 
@@ -107,14 +106,13 @@ var composerDisableCmd = &cobra.Command{
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
 		if resolveErr != nil {
-			log.Error("Failed to resolve installed PHP: %v", resolveErr)
-			os.Exit(1)
+			return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 		}
 
 		if err := mgr.DisableContext(cmd.Context(), phpVersion); err != nil {
-			log.Error("Failed to disable Composer: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to disable Composer: %w", err)
 		}
+		return nil
 	},
 }
 

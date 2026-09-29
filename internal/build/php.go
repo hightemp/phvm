@@ -17,6 +17,7 @@ import (
 	"github.com/hightemp/phvm/internal/deps"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/remote"
 	"github.com/hightemp/phvm/internal/toolchain"
@@ -250,11 +251,11 @@ func (b *Builder) extract(ctx context.Context, tarballPath, sourceDir string) er
 	// Determine extraction command based on file extension
 	var cmd *exec.Cmd
 	if strings.HasSuffix(tarballPath, ".tar.xz") {
-		cmd = exec.CommandContext(ctx, "tar", "-xJf", tarballPath, "-C", parentDir)
+		cmd = process.CommandContext(ctx, "tar", "-xJf", tarballPath, "-C", parentDir)
 	} else if strings.HasSuffix(tarballPath, ".tar.gz") {
-		cmd = exec.CommandContext(ctx, "tar", "-xzf", tarballPath, "-C", parentDir)
+		cmd = process.CommandContext(ctx, "tar", "-xzf", tarballPath, "-C", parentDir)
 	} else if strings.HasSuffix(tarballPath, ".tar.bz2") {
-		cmd = exec.CommandContext(ctx, "tar", "-xjf", tarballPath, "-C", parentDir)
+		cmd = process.CommandContext(ctx, "tar", "-xjf", tarballPath, "-C", parentDir)
 	} else {
 		return fmt.Errorf("unsupported archive format: %s", tarballPath)
 	}
@@ -351,7 +352,7 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	if err := configure.CheckSupported(ctx, configurePath, buildDir, env, explicitConfigureArguments(b.configFlags, b.customFlags)); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, configurePath, flags...)
+	cmd := process.CommandContext(ctx, configurePath, flags...)
 	cmd.Dir = buildDir
 
 	// Set environment with dependency paths
@@ -435,7 +436,7 @@ func stripSystemInclude(buildDir string) error {
 func (b *Builder) make(ctx context.Context, version, buildDir string) error {
 	log.Info("Building (this may take a while)...")
 
-	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", b.jobs))
+	cmd := process.CommandContext(ctx, "make", fmt.Sprintf("-j%d", b.jobs))
 	cmd.Dir = buildDir
 
 	// Set environment with dependency paths
@@ -465,7 +466,7 @@ func (b *Builder) install(ctx context.Context, version, buildDir, installDir str
 		return fmt.Errorf("create install directory: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "make", "install", "INSTALL_ROOT="+installDir, "DESTDIR="+installDir)
+	cmd := process.CommandContext(ctx, "make", "install", "INSTALL_ROOT="+installDir, "DESTDIR="+installDir)
 	cmd.Dir = buildDir
 	cmd.Env = []string(b.Environment(version))
 

@@ -30,7 +30,7 @@ Usage:
   Invoke-Expression (phvm init powershell | Out-String)`,
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		shellName := args[0]
 		phvmDir := core.DefaultRoot()
 
@@ -45,12 +45,11 @@ Usage:
 		case "powershell", "pwsh":
 			s = shell.PowerShell
 		default:
-			fmt.Printf("Unknown shell: %s\n", shellName)
-			fmt.Println("Supported shells: bash, zsh, fish, powershell")
-			return
+			return fmt.Errorf("unknown shell %q; supported: bash, zsh, fish, powershell", shellName)
 		}
 
 		script := shell.GetInitScript(s, phvmDir)
-		fmt.Print(script)
+		_, err := fmt.Fprint(cmd.OutOrStdout(), script)
+		return err
 	},
 }

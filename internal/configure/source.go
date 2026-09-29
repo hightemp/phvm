@@ -3,11 +3,11 @@ package configure
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
@@ -21,7 +21,7 @@ func CheckSupported(ctx context.Context, script, dir string, env toolchain.Envir
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probeCtx, script, "--help")
+	cmd := process.CommandContext(probeCtx, script, "--help")
 	cmd.Dir = dir
 	cmd.Env = []string(env)
 	cmd.WaitDelay = time.Second

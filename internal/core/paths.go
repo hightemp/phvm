@@ -18,6 +18,8 @@ type Paths struct {
 	Sources    string // ~/.phvm/cache/sources
 	Build      string // ~/.phvm/cache/build
 	Extensions string // ~/.phvm/cache/extensions
+	Tools      string // ~/.phvm/tools
+	Composer   string // ~/.phvm/tools/composer
 	Config     string // ~/.phvm/config
 	Profiles   string // ~/.phvm/config/ini-profiles
 	Logs       string // ~/.phvm/logs
@@ -62,6 +64,8 @@ func NewPaths(root string) *Paths {
 		Sources:    filepath.Join(root, "cache", "sources"),
 		Build:      filepath.Join(root, "cache", "build"),
 		Extensions: filepath.Join(root, "cache", "extensions"),
+		Tools:      filepath.Join(root, "tools"),
+		Composer:   filepath.Join(root, "tools", "composer"),
 		Config:     filepath.Join(root, "config"),
 		Profiles:   filepath.Join(root, "config", "ini-profiles"),
 		Logs:       filepath.Join(root, "logs"),
@@ -160,6 +164,8 @@ func (p *Paths) EnsureDirectories() error {
 		p.Sources,
 		p.Build,
 		p.Extensions,
+		p.Tools,
+		p.Composer,
 		p.Config,
 		p.Profiles,
 		p.Logs,

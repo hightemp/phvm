@@ -38,7 +38,7 @@ func TestInstallRequiresVerifiedComposer(t *testing.T) {
 				if err := p.EnsureDirectories(); err != nil {
 					t.Fatal(err)
 				}
-				phar := filepath.Join(p.Downloads, "composer.phar")
+				phar := filepath.Join(p.Composer, "composer.phar")
 				if err := os.WriteFile(phar, []byte("old composer"), 0600); err != nil {
 					t.Fatal(err)
 				}
@@ -83,7 +83,7 @@ func TestInstallRequiresVerifiedComposer(t *testing.T) {
 						t.Error("wrapper published after failed verification")
 					}
 				}
-				files, _ := filepath.Glob(filepath.Join(p.Downloads, "*.tmp*"))
+				files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
 				if len(files) > 0 {
 					t.Errorf("staging files left: %v", files)
 				}

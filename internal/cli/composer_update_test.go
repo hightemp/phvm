@@ -35,7 +35,7 @@ esac
 	if err := os.WriteFile(filepath.Join(p.VersionBin("8.3.30"), core.PHPBinary()), []byte(php), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(p.Downloads, "composer.phar"), []byte("preserve-working-file"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(p.Composer, "composer.phar"), []byte("preserve-working-file"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := composer.NewManager(p).Enable("8.3.30"); err != nil {
@@ -53,7 +53,7 @@ esac
 		if err == nil || strings.Contains(string(out), "Composer updated") || !strings.Contains(string(out), "invalid Composer PHAR") {
 			t.Errorf("false update success: %v %s", err, out)
 		}
-		data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+		data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 		if err != nil || string(data) != "preserve-working-file" {
 			t.Error("failed CLI update changed active PHAR")
 		}

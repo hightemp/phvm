@@ -1,11 +1,13 @@
 package cli
 
 import (
-	"os"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
+	"github.com/hightemp/phvm/internal/composer"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 var cacheCmd = &cobra.Command{
@@ -22,8 +24,12 @@ By default, clears all cache. Use flags to clear specific parts:
   --downloads  Clear downloaded tarballs
   --sources    Clear extracted source files
   --build      Clear build directories
-  --all        Clear everything (default)`,
-	Run: func(cmd *cobra.Command, args []string) {
+  --all        Clear everything (default)
+
+Installed Composer is kept outside cache. Legacy Composer is migrated before
+download cleanup; migration errors stop cleanup before files are removed.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		paths := GetPaths()
 
 		downloads, _ := cmd.Flags().GetBool("downloads")
@@ -37,30 +43,35 @@ By default, clears all cache. Use flags to clear specific parts:
 		}
 
 		if all || downloads {
-			log.Info("Clearing downloads...")
-			if err := os.RemoveAll(paths.Downloads); err != nil {
-				log.Warn("Failed to clear downloads: %v", err)
+			if err := composer.NewManager(paths).MigrateLegacy(cmd.Context()); err != nil {
+				return fmt.Errorf("migrate composer before clearing cache: %w", redact.Error(err, ""))
 			}
-			_ = os.MkdirAll(paths.Downloads, 0755)
 		}
-
-		if all || sources {
-			log.Info("Clearing sources...")
-			if err := os.RemoveAll(paths.Sources); err != nil {
-				log.Warn("Failed to clear sources: %v", err)
-			}
-			_ = os.MkdirAll(paths.Sources, 0755)
+		root, err := paths.OpenDataDir(paths.Cache, true)
+		if err != nil {
+			return redact.Error(err, "")
 		}
-
-		if all || build {
-			log.Info("Clearing build files...")
-			if err := os.RemoveAll(paths.Build); err != nil {
-				log.Warn("Failed to clear build files: %v", err)
+		defer root.Close()
+		for _, part := range []struct {
+			name  string
+			clear bool
+		}{
+			{"downloads", all || downloads}, {"sources", all || sources}, {"build", all || build},
+		} {
+			if !part.clear {
+				continue
 			}
-			_ = os.MkdirAll(paths.Build, 0755)
+			log.Info("Clearing %s...", part.name)
+			if err := root.RemoveAll(part.name); err != nil {
+				return fmt.Errorf("clear %s cache: %w", part.name, redact.Error(err, ""))
+			}
+			if err := root.Mkdir(part.name, 0755); err != nil {
+				return fmt.Errorf("recreate %s cache: %w", part.name, redact.Error(err, ""))
+			}
 		}
 
 		log.Success("Cache cleared")
+		return nil
 	},
 }
 

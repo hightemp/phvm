@@ -32,6 +32,14 @@ type Manager struct {
 
 // NewManager creates a new Manager.
 func NewManager(paths *core.Paths) *Manager {
+	// Launchers and PHP probes must resolve the same files from any working directory.
+	resolved := *paths
+	for _, path := range []*string{&resolved.Root, &resolved.Versions, &resolved.Downloads, &resolved.Composer} {
+		if absolute, err := filepath.Abs(*path); err == nil {
+			*path = absolute
+		}
+	}
+	paths = &resolved
 	client := *http.DefaultClient
 	if client.Timeout == 0 {
 		client.Timeout = 60 * time.Second
@@ -48,7 +56,6 @@ func (m *Manager) Install(ctx context.Context, phpVersion string) error {
 	}
 	log.Info("Installing Composer for PHP %s", phpVersion)
 
-	binDir := m.paths.VersionBin(phpVersion)
 	root, err := m.paths.OpenVersion(phpVersion, false)
 	if err != nil {
 		return err
@@ -56,9 +63,12 @@ func (m *Manager) Install(ctx context.Context, phpVersion string) error {
 	defer root.Close()
 
 	// Check if PHP is installed
-	phpBin := filepath.Join(binDir, core.PHPBinary())
 	if _, err := root.Stat(filepath.Join("bin", core.PHPBinary())); err != nil {
 		return fmt.Errorf("PHP %s is not installed", phpVersion)
+	}
+
+	if err := m.migrateLegacy(ctx, phpVersion); err != nil {
+		return err
 	}
 
 	// Download composer.phar
@@ -70,11 +80,9 @@ func (m *Manager) Install(ctx context.Context, phpVersion string) error {
 	}
 
 	// Create wrapper script
-	wrapper := fmt.Sprintf(`#!/bin/sh
-exec "%s" "%s" "$@"
-`, phpBin, pharPath)
+	wrapper := m.launcher(phpVersion, pharPath)
 
-	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), []byte(wrapper), 0755); err != nil {
+	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), wrapper, 0755); err != nil {
 		return fmt.Errorf("create composer wrapper: %w", err)
 	}
 
@@ -85,6 +93,9 @@ exec "%s" "%s" "$@"
 // InstallGlobal installs Composer globally (shared by all versions).
 func (m *Manager) InstallGlobal(ctx context.Context) error {
 	log.Info("Installing Composer globally...")
+	if err := m.MigrateLegacy(ctx); err != nil {
+		return err
+	}
 
 	pharPath, err := m.installVerified(ctx)
 	if err != nil {
@@ -109,7 +120,10 @@ func (m *Manager) Enable(phpVersion string) error {
 	defer root.Close()
 	binDir := m.paths.VersionBin(phpVersion)
 	phpBin := filepath.Join(binDir, core.PHPBinary())
-	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
+	if err := m.migrateLegacy(context.Background(), phpVersion); err != nil {
+		return err
+	}
+	pharPath := m.pharPath()
 
 	if !fsutil.Exists(pharPath) {
 		return fmt.Errorf("composer not installed globally; run: phvm composer install --global")
@@ -120,11 +134,9 @@ func (m *Manager) Enable(phpVersion string) error {
 	}
 
 	// Create wrapper script
-	wrapper := fmt.Sprintf(`#!/bin/sh
-exec "%s" "%s" "$@"
-`, phpBin, pharPath)
+	wrapper := m.launcher(phpVersion, pharPath)
 
-	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), []byte(wrapper), 0755); err != nil {
+	if err := fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), wrapper, 0755); err != nil {
 		return fmt.Errorf("create composer wrapper: %w", err)
 	}
 
@@ -158,14 +170,24 @@ func (m *Manager) IsInstalled(phpVersion string) bool {
 	return err == nil
 }
 
-// IsInstalledGlobally checks if Composer is installed globally.
+// IsInstalledGlobally checks permanent and legacy regular PHAR files without mutation.
 func (m *Manager) IsInstalledGlobally() bool {
-	pharPath := filepath.Join(m.paths.Downloads, "composer.phar")
-	return fsutil.Exists(pharPath)
+	for _, dir := range []string{m.paths.Composer, m.paths.Downloads} {
+		root, err := m.paths.OpenDataDir(dir, false)
+		if err != nil {
+			continue
+		}
+		found, err := regularPHAR(root)
+		_ = root.Close()
+		if err == nil && found {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) installVerified(ctx context.Context) (string, error) {
-	root, err := m.paths.OpenDataDir(m.paths.Downloads, true)
+	root, err := m.paths.OpenDataDir(m.paths.Composer, true)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +203,7 @@ func (m *Manager) installVerified(ctx context.Context) (string, error) {
 	if err := root.Rename(name, "composer.phar"); err != nil {
 		return "", err
 	}
-	return filepath.Join(m.paths.Downloads, "composer.phar"), nil
+	return m.pharPath(), nil
 }
 
 // stageVerified downloads and checks a unique file without replacing the active PHAR.

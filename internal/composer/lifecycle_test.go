@@ -35,7 +35,7 @@ func TestComposerDownloadFailuresPreserveInstallation(t *testing.T) {
 			if err := p.EnsureDirectories(); err != nil {
 				t.Fatal(err)
 			}
-			phar := filepath.Join(p.Downloads, "composer.phar")
+			phar := filepath.Join(p.Composer, "composer.phar")
 			if err := os.WriteFile(phar, []byte("old"), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +67,7 @@ func TestComposerDownloadFailuresPreserveInstallation(t *testing.T) {
 			if err != nil || string(data) != "old" {
 				t.Errorf("installation changed: %q %v", data, err)
 			}
-			entries, err := os.ReadDir(p.Downloads)
+			entries, err := os.ReadDir(p.Composer)
 			if err != nil || len(entries) != 1 {
 				t.Errorf("staging files remain: %v %v", entries, err)
 			}
@@ -138,11 +138,11 @@ func TestConcurrentComposerVerificationPreservesGoodArtifact(t *testing.T) {
 	if first == nil {
 		t.Error("invalid concurrent payload was accepted")
 	}
-	data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 	if err != nil || string(data) != good {
 		t.Errorf("valid artifact was corrupted: %q %v", data, err)
 	}
-	entries, _ := os.ReadDir(p.Downloads)
+	entries, _ := os.ReadDir(p.Composer)
 	if len(entries) != 1 {
 		t.Errorf("staging files remain: %v", entries)
 	}

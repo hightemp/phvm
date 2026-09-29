@@ -34,7 +34,10 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 			return fmt.Errorf("%s not installed for PHP %s", name, phpVersion)
 		}
 	}
-	root, err := m.paths.OpenDataDir(m.paths.Downloads, false)
+	if err := m.MigrateLegacy(ctx); err != nil {
+		return err
+	}
+	root, err := m.paths.OpenDataDir(m.paths.Composer, false)
 	if err != nil {
 		return fmt.Errorf("open Composer storage: %w", err)
 	}
@@ -47,7 +50,7 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 		return fmt.Errorf("composer PHAR must be a regular file, not a symlink or directory")
 	}
 	phpBin := filepath.Join(m.paths.VersionBin(phpVersion), core.PHPBinary())
-	active := filepath.Join(m.paths.Downloads, "composer.phar")
+	active := m.pharPath()
 	before, err := m.composerVersion(ctx, phpBin, active)
 	if err != nil {
 		return fmt.Errorf("read installed Composer version: %w", err)
@@ -58,7 +61,7 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 		return fmt.Errorf("download Composer update: %w", err)
 	}
 	defer func() { _ = root.Remove(stage) }()
-	after, err := m.composerVersion(ctx, phpBin, filepath.Join(m.paths.Downloads, stage))
+	after, err := m.composerVersion(ctx, phpBin, filepath.Join(m.paths.Composer, stage))
 	if err != nil {
 		return fmt.Errorf("validate downloaded Composer with PHP %s: %w", phpVersion, err)
 	}
@@ -79,7 +82,7 @@ func (m *Manager) Update(ctx context.Context, phpVersion string) error {
 			continue
 		}
 		otherPHP := filepath.Join(m.paths.VersionBin(version), core.PHPBinary())
-		otherVersion, err := m.composerVersion(ctx, otherPHP, filepath.Join(m.paths.Downloads, stage))
+		otherVersion, err := m.composerVersion(ctx, otherPHP, filepath.Join(m.paths.Composer, stage))
 		if err != nil {
 			return fmt.Errorf("shared Composer update is incompatible with enabled PHP %s: %w", version, err)
 		}

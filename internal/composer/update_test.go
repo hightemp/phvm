@@ -76,7 +76,7 @@ func seedComposerUpdate(t *testing.T, php string, old []byte) (*Manager, *core.P
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(p.Downloads, "composer.phar"), old, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(p.Composer, "composer.phar"), old, 0600); err != nil {
 		t.Fatal(err)
 	}
 	m := NewManager(p)
@@ -113,7 +113,7 @@ func TestUpdateRunsVerifiedPHARWithRealPHP(t *testing.T) {
 	if err := m.Update(context.Background(), "8.3.30"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 	if err != nil || string(data) != string(newPHAR) {
 		t.Error("Update reported success without publishing the verified new PHAR")
 	}
@@ -169,7 +169,7 @@ func TestUpdateFailuresPreserveWorkingPHAR(t *testing.T) {
 					t.Errorf("unverified download was executed: %s %v", calls, err)
 				}
 			}
-			data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+			data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 			if err != nil || string(data) != string(old) {
 				t.Error("failed update replaced working PHAR")
 			}
@@ -181,7 +181,7 @@ func TestUpdateFailuresPreserveWorkingPHAR(t *testing.T) {
 			if err != nil || !strings.Contains(string(out), "Composer version 2.8.1") {
 				t.Errorf("old Composer stopped working: %v %s", err, out)
 			}
-			files, _ := filepath.Glob(filepath.Join(p.Downloads, "*.tmp*"))
+			files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
 			if len(files) != 0 {
 				t.Errorf("staging files remain: %v", files)
 			}
@@ -195,7 +195,7 @@ func TestUpdateRejectsMissingOrUnsafeInstallation(t *testing.T) {
 	for _, kind := range []string{"missing PHP", "missing launcher", "missing PHAR", "symlink PHAR", "directory PHAR", "bad version"} {
 		t.Run(kind, func(t *testing.T) {
 			m, p := seedComposerUpdate(t, php, old)
-			active := filepath.Join(p.Downloads, "composer.phar")
+			active := filepath.Join(p.Composer, "composer.phar")
 			version := "8.3.30"
 			switch kind {
 			case "missing PHP":
@@ -258,11 +258,11 @@ func TestUpdateAlreadyCurrentDoesNotClaimVersionChange(t *testing.T) {
 	if strings.Contains(output.String(), "Composer updated") || !strings.Contains(output.String(), "already up to date (2.9.0)") {
 		t.Errorf("misleading update result: %s", output.String())
 	}
-	data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 	if err != nil || string(data) != string(old) {
 		t.Error("no-op changed active PHAR")
 	}
-	files, _ := filepath.Glob(filepath.Join(p.Downloads, "*.tmp*"))
+	files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
 	if len(files) != 0 {
 		t.Errorf("no-op left staging files: %v", files)
 	}
@@ -290,11 +290,11 @@ func TestUpdateCancellationPreservesWorkingPHAR(t *testing.T) {
 			if err := m.Update(ctx, "8.3.30"); !errors.Is(err, context.Canceled) {
 				t.Errorf("cancellation not returned: %v", err)
 			}
-			data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+			data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 			if err != nil || string(data) != string(old) {
 				t.Error("cancelled update changed active PHAR")
 			}
-			files, _ := filepath.Glob(filepath.Join(p.Downloads, "*.tmp*"))
+			files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
 			if len(files) != 0 {
 				t.Errorf("cancelled update left staging files: %v", files)
 			}
@@ -336,11 +336,11 @@ func TestConcurrentFailedUpdatePreservesPublishedPHAR(t *testing.T) {
 	if second != nil || first == nil {
 		t.Fatalf("valid update=%v invalid update=%v", second, first)
 	}
-	data, err := os.ReadFile(filepath.Join(p.Downloads, "composer.phar"))
+	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
 	if err != nil || !bytes.Equal(data, newPHAR) {
 		t.Error("failed concurrent update changed the published PHAR")
 	}
-	files, _ := filepath.Glob(filepath.Join(p.Downloads, "*.tmp*"))
+	files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
 	if len(files) != 0 {
 		t.Errorf("concurrent update left staging files: %v", files)
 	}

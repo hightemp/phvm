@@ -157,7 +157,7 @@ leaves the previous current version intact.
 | `phvm doctor --php 8.5.11 --profile common` | Check tools and libraries for the selected PHP build |
 | `phvm composer install` | Install Composer |
 | `phvm composer update [--php <version-or-alias>]` | Verify and atomically update the shared Composer PHAR |
-| `phvm cache clean` | Clear download cache |
+| `phvm cache clear [--downloads|--sources|--build|--all]` | Clear cache while preserving installed Composer |
 | `phvm init <shell>` | Print shell init script |
 
 ## Updating Composer
@@ -180,11 +180,33 @@ reported as already up to date; a downgrade is rejected. A failed download,
 checksum, PHP runtime/version check or cancellation preserves the active PHAR
 and launchers, returns a nonzero CLI status and removes staging files.
 
-The current layout uses one shared PHAR at `$PHVM_DIR/cache/downloads/composer.phar`.
+The layout uses one shared PHAR at `$PHVM_DIR/tools/composer/composer.phar`.
 Updating it affects all enabled PHP versions. Before publication, the candidate
 must also run and report the same version under each other enabled, registered
-PHP installation. An incompatible runtime blocks the update. Moving the working
-PHAR out of the download cache is tracked separately in PHVM-09.
+PHP installation. An incompatible runtime blocks the update. The working PHAR
+is never part of cache cleanup; a verified candidate replaces the active
+file atomically at this stable path.
+
+### Composer storage and cache cleanup
+
+Install, global install, enable and update use this permanent shared storage.
+`cache clear`, `cache clear --downloads` and `cache clear --all` remove disposable
+download/source/build files and preserve Composer. Composer still works after
+the entire cache directory is removed once its installation uses the permanent
+path.
+
+Before clearing downloads, phvm automatically migrates the old
+`cache/downloads/composer.phar` and standard managed launchers. Migration copies
+the existing PHAR through a temporary file and an atomic rename, then rewrites
+launchers to the permanent path without executing PHP or contacting the network.
+An existing permanent PHAR takes precedence over cached legacy bytes. Migration
+is repeatable; old cache bytes remain until cleanup succeeds.
+
+A migration error stops cleanup before deletion. An unrecognized custom launcher
+that still references the legacy PHAR is preserved and diagnosed; use
+`phvm composer enable --php <version>` to explicitly replace it, then retry
+cleanup. Symlink storage/PHAR paths are rejected. Composer launchers quote paths
+literally, including spaces, quotes, dollar signs and backticks.
 
 ## Build Profiles
 
@@ -228,6 +250,9 @@ phvm ini profile production
 │   └── default            # Alias files
 ├── cache/
 │   └── downloads/         # Downloaded tarballs
+├── tools/
+│   └── composer/
+│       └── composer.phar  # Shared Composer, preserved by cache cleanup
 ├── config/
 │   └── phvm.toml          # phvm configuration
 └── logs/                   # Build logs

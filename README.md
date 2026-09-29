@@ -156,8 +156,35 @@ leaves the previous current version intact.
 |---------|-------------|
 | `phvm doctor --php 8.5.11 --profile common` | Check tools and libraries for the selected PHP build |
 | `phvm composer install` | Install Composer |
+| `phvm composer update [--php <version-or-alias>]` | Verify and atomically update the shared Composer PHAR |
 | `phvm cache clean` | Clear download cache |
 | `phvm init <shell>` | Print shell init script |
+
+## Updating Composer
+
+```bash
+phvm composer update
+phvm composer update --php 8.3
+phvm composer update --php prod
+```
+
+`--php` selects an installed PHP version/alias; the default is current. Phvm runs
+the selected PHP against the PHAR's `--version`, downloads the latest stable
+PHAR to a unique staging file, checks the official SHA256, and runs the verified
+candidate's `--version` before replacing the active file atomically. The shell
+launcher is never passed to PHP as source. Version probes disable Composer
+plugins, scripts, ANSI and interaction using [Composer's global options](https://getcomposer.org/doc/03-cli.md#global-options).
+
+Successful output includes the before/after versions. An identical version is
+reported as already up to date; a downgrade is rejected. A failed download,
+checksum, PHP runtime/version check or cancellation preserves the active PHAR
+and launchers, returns a nonzero CLI status and removes staging files.
+
+The current layout uses one shared PHAR at `$PHVM_DIR/cache/downloads/composer.phar`.
+Updating it affects all enabled PHP versions. Before publication, the candidate
+must also run and report the same version under each other enabled, registered
+PHP installation. An incompatible runtime blocks the update. Moving the working
+PHAR out of the download cache is tracked separately in PHVM-09.
 
 ## Build Profiles
 

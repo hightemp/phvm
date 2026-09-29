@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -96,36 +95,6 @@ func (m *Manager) InstallGlobal(ctx context.Context) error {
 	return nil
 }
 
-// Update updates Composer.
-func (m *Manager) Update(ctx context.Context, phpVersion string) error {
-	var err error
-	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
-	if err != nil {
-		return err
-	}
-	binDir := m.paths.VersionBin(phpVersion)
-	composerPath := filepath.Join(binDir, "composer")
-
-	if !fsutil.Exists(composerPath) {
-		return fmt.Errorf("composer not installed for PHP %s", phpVersion)
-	}
-
-	phpBin := filepath.Join(binDir, core.PHPBinary())
-
-	log.Info("Updating Composer...")
-
-	cmd := exec.CommandContext(ctx, phpBin, composerPath, "self-update")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("composer self-update: %w", err)
-	}
-
-	log.Success("Composer updated")
-	return nil
-}
-
 // Enable enables Composer for a PHP version.
 func (m *Manager) Enable(phpVersion string) error {
 	var err error
@@ -201,9 +170,30 @@ func (m *Manager) installVerified(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer root.Close()
-	name := "composer.phar.tmp-" + fsutil.RandomSuffix()
+	name, err := m.stageVerified(ctx, root)
+	if err != nil {
+		return "", err
+	}
 	defer func() { _ = root.Remove(name) }()
-	if err := m.download(ctx, composerURL, root, name); err != nil {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := root.Rename(name, "composer.phar"); err != nil {
+		return "", err
+	}
+	return filepath.Join(m.paths.Downloads, "composer.phar"), nil
+}
+
+// stageVerified downloads and checks a unique file without replacing the active PHAR.
+func (m *Manager) stageVerified(ctx context.Context, root *os.Root) (name string, err error) {
+	name = "composer.phar.tmp-" + fsutil.RandomSuffix()
+	stageName := name
+	defer func() {
+		if err != nil {
+			_ = root.Remove(stageName)
+		}
+	}()
+	if err = m.download(ctx, composerURL, root, name); err != nil {
 		return "", err
 	}
 	file, err := root.Open(name)
@@ -213,15 +203,9 @@ func (m *Manager) installVerified(ctx context.Context) (string, error) {
 	err = m.verifyChecksumReader(ctx, file)
 	_ = file.Close()
 	if err != nil {
-		return "", fmt.Errorf("verify composer: %w", err)
+		return "", fmt.Errorf("verify composer: %w", redact.Error(err, composerSigURL))
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if err := root.Rename(name, "composer.phar"); err != nil {
-		return "", err
-	}
-	return filepath.Join(m.paths.Downloads, "composer.phar"), nil
+	return name, nil
 }
 
 // download streams a file into a unique confined staging file.

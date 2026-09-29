@@ -85,7 +85,7 @@ func TestVerifyRealGPG(t *testing.T) {
 		if r.URL.String() != PHPKeyringURL {
 			t.Errorf("unexpected trust URL: %s", r.URL)
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(trusted))), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(trusted))), Header: make(http.Header), ContentLength: -1}, nil
 	})
 	v := NewVerifier(client, dir)
 	v.SetGPGFallback(true)
@@ -188,7 +188,7 @@ func TestVerifyGPGStates(t *testing.T) {
 			}
 			client := NewClient(DefaultClientOptions())
 			client.httpClient.HTTPClient.Transport = verificationTransport(func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("fixture keyring")), Header: make(http.Header)}, nil
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("fixture keyring")), Header: make(http.Header), ContentLength: -1}, nil
 			})
 			v := NewVerifier(client, dir)
 			v.SetGPGEnabled(tt.enabled)

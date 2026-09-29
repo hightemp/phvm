@@ -330,9 +330,11 @@ func TestConcurrentFailedUpdatePreservesPublishedPHAR(t *testing.T) {
 		<-done
 		t.Fatal("update did not reach download barrier")
 	}
-	second := m.Update(context.Background(), "8.2.30")
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- m.Update(context.Background(), "8.2.30") }()
 	close(release)
 	first := <-done
+	second := <-secondDone
 	if second != nil || first == nil {
 		t.Fatalf("valid update=%v invalid update=%v", second, first)
 	}

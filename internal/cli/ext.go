@@ -38,7 +38,7 @@ var extListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		extensions, err := ext.ListInstalled(paths, phpVersion)
+		extensions, err := ext.ListInstalledContext(cmd.Context(), paths, phpVersion)
 		if err != nil {
 			log.Error("Failed to list extensions: %v", err)
 			os.Exit(1)
@@ -200,7 +200,7 @@ var extEnableCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := ext.Enable(paths, phpVersion, extName); err != nil {
+		if err := ext.EnableContext(cmd.Context(), paths, phpVersion, extName); err != nil {
 			log.Error("Failed to enable extension: %v", err)
 			os.Exit(1)
 		}
@@ -225,7 +225,7 @@ var extDisableCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := ext.Disable(paths, phpVersion, extName); err != nil {
+		if err := ext.DisableContext(cmd.Context(), paths, phpVersion, extName); err != nil {
 			log.Error("Failed to disable extension: %v", err)
 			os.Exit(1)
 		}

@@ -174,8 +174,9 @@ The library must remain inside the selected PHP installation and match its
 recorded SHA256. Changed, shared or symlinked libraries block removal. Built-in
 modules cannot be uninstalled. Libraries without recorded ownership, including
 legacy installations, are retained while their matching ini/metadata are removed.
-File writes are atomic and returned write errors trigger rollback; interrupted
-processes and concurrent operations do not have a shared transaction guarantee.
+File writes are atomic and returned write errors trigger rollback. Commands
+coordinate through a shared state lock; recovery after process interruption
+does not have a transaction guarantee.
 
 ### Configuration
 
@@ -229,8 +230,9 @@ file atomically at this stable path.
 ### Composer storage and cache cleanup
 
 Install, global install, enable and update use this permanent shared storage.
-`cache clear`, `cache clear --downloads` and `cache clear --all` remove disposable
-download/source/build files and preserve Composer. Composer still works after
+`cache clear` and `cache clear --all` remove disposable download/source/build and
+extension archive files. `cache clear --downloads` removes downloaded PHP files.
+These commands preserve Composer. Composer still works after
 the entire cache directory is removed once its installation uses the permanent
 path.
 
@@ -246,6 +248,19 @@ that still references the legacy PHAR is preserved and diagnosed; use
 `phvm composer enable --php <version>` to explicitly replace it, then retry
 cleanup. Symlink storage/PHAR paths are rejected. Composer launchers quote paths
 literally, including spaces, quotes, dollar signs and backticks.
+
+Commands using managed PHP state wait for other operations in the same phvm
+directory. This coordinates installation, removal, extension metadata changes,
+Composer publication and cache cleanup. Long builds also hold this lock; Ctrl+C
+cancels a command waiting for it. Version/help/config output, remote listings
+and doctor do not wait for the state lock.
+
+Downloads use unique temporary files and serialize writers and cleanup for each
+cache directory. A waiting download rechecks the cache after acquiring the lock.
+PHP archives are checked against the expected SHA256 before publication and
+before reuse; a damaged cached archive is downloaded again. Failed or cancelled
+downloads preserve the previous published file. Lock files remain outside the
+cleared cache parts so waiting commands continue to use the same lock.
 
 ## Build Profiles
 

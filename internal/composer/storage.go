@@ -30,7 +30,9 @@ func (m *Manager) legacyLauncher(version, phar string) []byte {
 
 // MigrateLegacy preserves the old cached PHAR and repoints managed launchers.
 // Cache cleanup must not proceed if any legacy launcher cannot be migrated.
-func (m *Manager) MigrateLegacy(ctx context.Context) error { return m.migrateLegacy(ctx, "") }
+func (m *Manager) MigrateLegacy(ctx context.Context) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.migrateLegacy(locked, "") })
+}
 
 func (m *Manager) migrateLegacy(ctx context.Context, replacement string) error {
 	if err := ctx.Err(); err != nil {

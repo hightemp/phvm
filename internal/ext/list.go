@@ -22,7 +22,14 @@ type Extension struct {
 
 // ListInstalled joins runtime modules, managed configuration, metadata and libraries.
 func ListInstalled(paths *core.Paths, phpVersion string) ([]Extension, error) {
-	return listInventory(paths, phpVersion)
+	return ListInstalledContext(context.Background(), paths, phpVersion)
+}
+
+// ListInstalledContext reads a consistent inventory while holding the state lock.
+func ListInstalledContext(ctx context.Context, paths *core.Paths, phpVersion string) ([]Extension, error) {
+	var result []Extension
+	err := paths.WithStateLock(ctx, func(context.Context) error { var err error; result, err = listInventory(paths, phpVersion); return err })
+	return result, err
 }
 
 // ListRemote lists available PECL extensions.
@@ -58,10 +65,20 @@ func NewPECLAPI(client *Client) interface {
 
 // Enable enables the exact extension's loading file.
 func Enable(paths *core.Paths, phpVersion, extName string) error {
-	return setEnabled(paths, phpVersion, extName, true)
+	return EnableContext(context.Background(), paths, phpVersion, extName)
+}
+
+// EnableContext changes exact extension state after acquiring the state lock.
+func EnableContext(ctx context.Context, paths *core.Paths, phpVersion, extName string) error {
+	return paths.WithStateLock(ctx, func(context.Context) error { return setEnabled(paths, phpVersion, extName, true) })
 }
 
 // Disable disables the exact extension's loading file.
 func Disable(paths *core.Paths, phpVersion, extName string) error {
-	return setEnabled(paths, phpVersion, extName, false)
+	return DisableContext(context.Background(), paths, phpVersion, extName)
+}
+
+// DisableContext changes exact extension state after acquiring the state lock.
+func DisableContext(ctx context.Context, paths *core.Paths, phpVersion, extName string) error {
+	return paths.WithStateLock(ctx, func(context.Context) error { return setEnabled(paths, phpVersion, extName, false) })
 }

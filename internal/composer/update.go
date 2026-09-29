@@ -17,6 +17,10 @@ import (
 
 // Update replaces the shared PHAR only after checksum and PHP-version validation.
 func (m *Manager) Update(ctx context.Context, phpVersion string) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.update(locked, phpVersion) })
+}
+
+func (m *Manager) update(ctx context.Context, phpVersion string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

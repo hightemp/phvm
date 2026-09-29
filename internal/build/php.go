@@ -87,6 +87,10 @@ type BuildOptions struct {
 
 // Build builds PHP from source.
 func (b *Builder) Build(ctx context.Context, opts BuildOptions) error {
+	return b.paths.WithStateLock(ctx, func(locked context.Context) error { return b.build(locked, opts) })
+}
+
+func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	startTime := time.Now()
 
 	version, err := b.paths.CheckVersionPath(opts.Version)
@@ -456,6 +460,15 @@ opcache.enable_cli=0
 
 // SaveMetadata saves build metadata.
 func (b *Builder) SaveMetadata(version, sourceURL, sha256 string, verification *remote.VerifyResult, duration time.Duration) error {
+	return b.SaveMetadataContext(context.Background(), version, sourceURL, sha256, verification, duration)
+}
+
+// SaveMetadataContext publishes metadata while holding the installation state lock.
+func (b *Builder) SaveMetadataContext(ctx context.Context, version, sourceURL, sha256 string, verification *remote.VerifyResult, duration time.Duration) error {
+	return b.paths.WithStateLock(ctx, func(context.Context) error { return b.saveMetadata(version, sourceURL, sha256, verification, duration) })
+}
+
+func (b *Builder) saveMetadata(version, sourceURL, sha256 string, verification *remote.VerifyResult, duration time.Duration) error {
 	if verification == nil || !verification.SHA256Verified {
 		return fmt.Errorf("missing successful SHA256 verification")
 	}

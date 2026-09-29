@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -84,6 +85,15 @@ func (m *InstalledManager) GetLatestInstalled(pattern string) (string, error) {
 
 // Remove removes an installed version.
 func (m *InstalledManager) Remove(version string) error {
+	return m.RemoveContext(context.Background(), version)
+}
+
+// RemoveContext coordinates version deletion with installs and dependent tools.
+func (m *InstalledManager) RemoveContext(ctx context.Context, version string) error {
+	return m.paths.WithStateLock(ctx, func(context.Context) error { return m.remove(version) })
+}
+
+func (m *InstalledManager) remove(version string) error {
 	version, err := NormalizeInstalledVersion(version)
 	if err != nil {
 		return err

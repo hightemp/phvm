@@ -223,7 +223,7 @@ func (v *Verifier) DownloadAndVerify(ctx context.Context, info *TarballInfo, key
 	downloader := NewDownloader(v.client, v.cacheDir)
 
 	// Download tarball
-	tarballPath, err := downloader.Download(ctx, info.URL, info.Filename)
+	tarballPath, err := downloader.DownloadVerified(ctx, info.URL, info.Filename, info.SHA256)
 	if err != nil {
 		return "", nil, fmt.Errorf("download tarball: %w", err)
 	}

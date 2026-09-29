@@ -12,7 +12,6 @@ import (
 	"github.com/hightemp/phvm/internal/build"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/doctor"
-	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
 )
@@ -133,20 +132,6 @@ func runInstall(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Acquire lock
-	lockPath := paths.InstallLockFile(version)
-	lock := fsutil.NewFileLock(lockPath)
-	acquired, err := lock.TryLock()
-	if err != nil {
-		log.Error("Failed to acquire lock: %v", err)
-		os.Exit(1)
-	}
-	if !acquired {
-		log.Error("Another installation of PHP %s is in progress", version)
-		os.Exit(1)
-	}
-	defer func() { _ = lock.Unlock() }()
-
 	// Download and verify
 	startTime := time.Now()
 	verifier := getVerifier(paths, client)
@@ -191,7 +176,7 @@ func runInstall(cmd *cobra.Command, args []string) {
 
 	// Save metadata
 	duration := time.Since(startTime)
-	if err := builder.SaveMetadata(version, tarball.URL, tarball.SHA256, verification, duration); err != nil {
+	if err := builder.SaveMetadataContext(ctx, version, tarball.URL, tarball.SHA256, verification, duration); err != nil {
 		log.Warn("Failed to save metadata: %v", err)
 	}
 
@@ -248,7 +233,7 @@ var uninstallCmd = &cobra.Command{
 		}
 
 		log.Info("Uninstalling PHP %s...", version)
-		if err := installed.Remove(version); err != nil {
+		if err := installed.RemoveContext(cmd.Context(), version); err != nil {
 			log.Error("Failed to uninstall: %v", err)
 			os.Exit(1)
 		}

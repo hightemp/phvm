@@ -49,6 +49,10 @@ func NewManager(paths *core.Paths) *Manager {
 
 // Install installs Composer for a PHP version.
 func (m *Manager) Install(ctx context.Context, phpVersion string) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.install(locked, phpVersion) })
+}
+
+func (m *Manager) install(ctx context.Context, phpVersion string) error {
 	var err error
 	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
 	if err != nil {
@@ -92,6 +96,10 @@ func (m *Manager) Install(ctx context.Context, phpVersion string) error {
 
 // InstallGlobal installs Composer globally (shared by all versions).
 func (m *Manager) InstallGlobal(ctx context.Context) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.installGlobal(locked) })
+}
+
+func (m *Manager) installGlobal(ctx context.Context) error {
 	log.Info("Installing Composer globally...")
 	if err := m.MigrateLegacy(ctx); err != nil {
 		return err
@@ -108,6 +116,15 @@ func (m *Manager) InstallGlobal(ctx context.Context) error {
 
 // Enable enables Composer for a PHP version.
 func (m *Manager) Enable(phpVersion string) error {
+	return m.EnableContext(context.Background(), phpVersion)
+}
+
+// EnableContext coordinates launcher changes with shared Composer publication.
+func (m *Manager) EnableContext(ctx context.Context, phpVersion string) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.enable(locked, phpVersion) })
+}
+
+func (m *Manager) enable(ctx context.Context, phpVersion string) error {
 	var err error
 	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
 	if err != nil {
@@ -120,7 +137,7 @@ func (m *Manager) Enable(phpVersion string) error {
 	defer root.Close()
 	binDir := m.paths.VersionBin(phpVersion)
 	phpBin := filepath.Join(binDir, core.PHPBinary())
-	if err := m.migrateLegacy(context.Background(), phpVersion); err != nil {
+	if err := m.migrateLegacy(ctx, phpVersion); err != nil {
 		return err
 	}
 	pharPath := m.pharPath()
@@ -146,6 +163,18 @@ func (m *Manager) Enable(phpVersion string) error {
 
 // Disable removes Composer from a PHP version.
 func (m *Manager) Disable(phpVersion string) error {
+	return m.DisableContext(context.Background(), phpVersion)
+}
+
+// DisableContext coordinates launcher changes with shared Composer publication.
+func (m *Manager) DisableContext(ctx context.Context, phpVersion string) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.disable(locked, phpVersion) })
+}
+
+func (m *Manager) disable(ctx context.Context, phpVersion string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	root, err := m.paths.OpenVersion(phpVersion, false)
 	if err != nil {
 		return err

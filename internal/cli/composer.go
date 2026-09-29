@@ -89,7 +89,7 @@ var composerEnableCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := mgr.Enable(phpVersion); err != nil {
+		if err := mgr.EnableContext(cmd.Context(), phpVersion); err != nil {
 			log.Error("Failed to enable Composer: %v", err)
 			os.Exit(1)
 		}
@@ -111,7 +111,7 @@ var composerDisableCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := mgr.Disable(phpVersion); err != nil {
+		if err := mgr.DisableContext(cmd.Context(), phpVersion); err != nil {
 			log.Error("Failed to disable Composer: %v", err)
 			os.Exit(1)
 		}

@@ -129,9 +129,11 @@ func TestConcurrentComposerVerificationPreservesGoodArtifact(t *testing.T) {
 		<-done
 		t.Fatal("download did not reach barrier")
 	}
-	second := m.InstallGlobal(context.Background())
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- m.InstallGlobal(context.Background()) }()
 	close(release)
 	first := <-done
+	second := <-secondDone
 	if second != nil {
 		t.Errorf("valid concurrent install failed: %v", second)
 	}

@@ -2,10 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hightemp/phvm/internal/composer"
+	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/redact"
 )
@@ -56,17 +59,27 @@ download cleanup; migration errors stop cleanup before files are removed.`,
 			name  string
 			clear bool
 		}{
-			{"downloads", all || downloads}, {"sources", all || sources}, {"build", all || build},
+			{"downloads", all || downloads}, {"sources", all || sources}, {"build", all || build}, {"extensions", all},
 		} {
 			if !part.clear {
 				continue
 			}
-			log.Info("Clearing %s...", part.name)
-			if err := root.RemoveAll(part.name); err != nil {
-				return fmt.Errorf("clear %s cache: %w", part.name, redact.Error(err, ""))
+			// Validate the managed path before creating any sibling lock files.
+			partRoot, err := paths.OpenDataDir(filepath.Join(paths.Cache, part.name), false)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("open %s cache: %w", part.name, err)
 			}
-			if err := root.Mkdir(part.name, 0755); err != nil {
-				return fmt.Errorf("recreate %s cache: %w", part.name, redact.Error(err, ""))
+			if partRoot != nil {
+				_ = partRoot.Close()
+			}
+			log.Info("Clearing %s...", part.name)
+			if err := fsutil.WithDirectoryLock(cmd.Context(), filepath.Join(paths.Cache, part.name), func() error {
+				if err := root.RemoveAll(part.name); err != nil {
+					return err
+				}
+				return root.Mkdir(part.name, 0755)
+			}); err != nil {
+				return fmt.Errorf("clear %s cache: %w", part.name, redact.Error(err, ""))
 			}
 		}
 

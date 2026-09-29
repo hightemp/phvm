@@ -58,6 +58,10 @@ type InstallOptions struct {
 
 // Install installs a PECL extension.
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
+	return i.paths.WithStateLock(ctx, func(locked context.Context) error { return i.install(locked, opts) })
+}
+
+func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	if err := fsutil.ValidateName(opts.Name); err != nil {
 		return err
 	}
@@ -264,6 +268,10 @@ func isZendExtension(name string) bool {
 
 // Uninstall removes the exact extension's configuration and verified owned binary.
 func (i *Installer) Uninstall(ctx context.Context, name, phpVersion string) error {
+	return i.paths.WithStateLock(ctx, func(locked context.Context) error { return i.uninstall(locked, name, phpVersion) })
+}
+
+func (i *Installer) uninstall(ctx context.Context, name, phpVersion string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

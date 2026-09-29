@@ -2,7 +2,9 @@
 package cli
 
 import (
+	"context"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 
@@ -23,7 +25,8 @@ var (
 	phvmDir string
 
 	// Shared instances
-	paths *core.Paths
+	paths         *core.Paths
+	commandUnlock func() error
 )
 
 // rootCmd is the base command.
@@ -60,13 +63,38 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 		logger := log.New(os.Stderr, level)
 		logger.SetNoColor(!effectiveConfig.General.Color)
 		log.SetDefault(logger)
+		if commandUsesState(cmd) {
+			locked, release, err := paths.LockState(cmd.Context())
+			if err != nil {
+				return err
+			}
+			commandUnlock = release
+			cmd.SetContext(locked)
+		}
 		return nil
 	},
 }
 
 // Execute runs the CLI.
 func Execute() error {
-	return rootCmd.Execute()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	defer func() {
+		if commandUnlock != nil {
+			_ = commandUnlock()
+			commandUnlock = nil
+		}
+	}()
+	return rootCmd.ExecuteContext(ctx)
+}
+
+func commandUsesState(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c == versionCmd || c == doctorCmd || c == initCmd || c == lsRemoteCmd || c == extListRemoteCmd || c == configCmd {
+			return false
+		}
+	}
+	return true
 }
 
 func init() {

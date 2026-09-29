@@ -213,7 +213,7 @@ does not have a transaction guarantee.
 |---------|-------------|
 | `phvm ini get <key>` | Get php.ini value |
 | `phvm ini set <key> <value>` | Set php.ini value |
-| `phvm ini profile <name>` | Apply ini profile (development/production) |
+| `phvm ini profile use <name>` | Apply an ini profile to current PHP |
 | `phvm ini edit` | Open php.ini in editor |
 | `phvm config show` | Show defaults plus TOML settings |
 | `phvm config show --effective` | Show settings after environment and explicit CLI overrides |
@@ -348,12 +348,48 @@ and selected build environment passed to configure for PHP and extensions.
 Switch between development and production configurations:
 
 ```bash
-# Apply development settings (display_errors=On, etc.)
-phvm ini profile development
+# Apply development settings while preserving conf.d
+phvm ini profile use development
 
-# Apply production settings (display_errors=Off, etc.)
-phvm ini profile production
+# Apply production settings while preserving conf.d
+phvm ini profile use production
+
+# Save current php.ini and all conf.d as an exact snapshot
+phvm ini profile save project
+
+# Restore it and keep the last three managed backups
+phvm ini profile use project --backup-keep 3
 ```
+
+Saved profiles are **snapshots of `php.ini` and the entire `conf.d` directory**.
+Saving the same name replaces its previous contents, including removed files.
+Applying a snapshot removes configuration files absent from it. Other files in
+the PHP `etc` directory, such as FPM configuration, remain unchanged. Enabled
+and disabled counterparts cannot coexist in a valid profile.
+
+Built-in development/production profiles change only `php.ini`. Saving your own
+snapshot under either name deliberately replaces that default. Legacy profiles
+without `profile.json` use snapshot semantics when they contain `conf.d`, and
+php.ini-only semantics otherwise. New snapshots record their mode explicitly.
+
+Profile application prepares and validates a temporary configuration using
+current PHP before publication, then checks the final path. Syntax/startup
+errors stop application. Returned copy/publication errors restore the previous
+configuration; rollback errors retain the temporary previous copy for repair.
+Exact recorded extension ini/module mappings have their enabled metadata updated.
+Libraries and ownership records are retained.
+
+Backups are enabled by default and use unique `etc.backup-<time>-<id>` directories
+inside the PHP version. Each includes the old configuration and available version
+metadata. `--backup-keep` accepts 1–100, defaults to 5, and prunes only completed
+managed backups after a successful apply. `--backup=false` creates no backup.
+Legacy `etc.backup` and unrecognized backup directories are preserved. A pruning
+failure is reported and may temporarily leave more backups than the limit.
+
+Operations use the shared state lock. Directory publication uses two renames;
+direct readers can observe the short interval between them. This profile workflow
+does not promise automatic recovery from process death or power loss. Saving
+validates file structure; PHP startup validation runs when applying the profile.
 
 ## Directory Structure
 

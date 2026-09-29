@@ -1,6 +1,8 @@
 package ini
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +13,13 @@ import (
 
 // ProfileManager manages ini profiles.
 type ProfileManager struct {
-	paths *core.Paths
+	paths       *core.Paths
+	backupLimit int
 }
 
 // NewProfileManager creates a new ProfileManager.
 func NewProfileManager(paths *core.Paths) *ProfileManager {
-	return &ProfileManager{paths: paths}
+	return &ProfileManager{paths: paths, backupLimit: 5}
 }
 
 // Profile represents an ini profile.
@@ -25,6 +28,7 @@ type Profile struct {
 	Path    string
 	HasIni  bool
 	HasConf bool
+	Mode    string
 }
 
 // List lists all available profiles.
@@ -77,16 +81,35 @@ func (m *ProfileManager) Get(name string) (*Profile, error) {
 		return nil, fmt.Errorf("profile not found: %s", name)
 	}
 	defer root.Close()
-	iniInfo, iniErr := root.Stat("php.ini")
+	iniInfo, iniErr := root.Lstat("php.ini")
 	if iniErr != nil && !os.IsNotExist(iniErr) {
 		return nil, iniErr
 	}
-	confInfo, confErr := root.Stat("conf.d")
+	confInfo, confErr := root.Lstat("conf.d")
 	if confErr != nil && !os.IsNotExist(confErr) {
 		return nil, confErr
 	}
 
+	mode := "ini-only"
+	if confErr == nil && confInfo.IsDir() {
+		mode = "snapshot"
+	}
+	data, err := root.ReadFile("profile.json")
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err == nil {
+		var manifest profileManifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return nil, fmt.Errorf("parse profile manifest: %w", err)
+		}
+		if manifest.Format != 1 || (manifest.Mode != "snapshot" && manifest.Mode != "ini-only") {
+			return nil, fmt.Errorf("invalid profile manifest")
+		}
+		mode = manifest.Mode
+	}
 	return &Profile{
+		Mode:    mode,
 		Name:    name,
 		Path:    profilePath,
 		HasIni:  iniErr == nil && iniInfo.Mode().IsRegular(),
@@ -94,143 +117,66 @@ func (m *ProfileManager) Get(name string) (*Profile, error) {
 	}, nil
 }
 
-// Apply applies a profile to a PHP version.
-func (m *ProfileManager) Apply(profileName, version string, backup bool) error {
-	var err error
-	version, err = m.paths.CheckVersionPath(version)
-	if err != nil {
-		return err
-	}
-	profile, err := m.Get(profileName)
-	if err != nil {
-		return err
-	}
-
-	// Backup existing configuration if requested
-	if backup {
-		if err := m.backupVersion(version); err != nil {
-			return fmt.Errorf("backup failed: %w", err)
-		}
-	}
-
-	src, err := m.paths.OpenDataDir(profile.Path, false)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := m.paths.OpenDataDir(m.paths.VersionEtc(version), true)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	return copyProfileConfig(src, dst)
+// Apply applies a saved snapshot or a php.ini-only profile.
+func (m *ProfileManager) Apply(name, version string, backup bool) error {
+	return m.ApplyContext(context.Background(), name, version, backup)
 }
 
-// Save saves the current configuration as a profile.
-func (m *ProfileManager) Save(profileName, version string) error {
-	if err := fsutil.ValidateName(profileName); err != nil {
-		return err
-	}
-	version, err := m.paths.CheckVersionPath(version)
-	if err != nil {
-		return err
-	}
-	src, err := m.paths.OpenDataDir(m.paths.VersionEtc(version), false)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	dst, err := m.paths.OpenDataDir(m.paths.ProfileDir(profileName), true)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	return copyProfileConfig(src, dst)
+// ApplyContext coordinates application, validation, rollback and backup history.
+func (m *ProfileManager) ApplyContext(ctx context.Context, name, version string, backup bool) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.apply(locked, name, version, backup) })
 }
 
-// Delete deletes a profile.
-func (m *ProfileManager) Delete(name string) error {
-	if err := fsutil.ValidateName(name); err != nil {
-		return err
-	}
-	root, err := m.paths.OpenDataDir(m.paths.Profiles, false)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return root.RemoveAll(name)
+// Save replaces a saved profile with an exact configuration snapshot.
+func (m *ProfileManager) Save(name, version string) error {
+	return m.SaveContext(context.Background(), name, version)
 }
 
-// backupVersion creates a backup of the version's configuration.
-func (m *ProfileManager) backupVersion(version string) error {
-	root, err := m.paths.OpenVersion(version, false)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	src, err := root.OpenRoot("etc")
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	if err := root.RemoveAll("etc.backup"); err != nil {
-		return err
-	}
-	if err := root.Mkdir("etc.backup", 0755); err != nil {
-		return err
-	}
-	dst, err := root.OpenRoot("etc.backup")
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-	return fsutil.CopyRootTree(src, dst)
+// SaveContext saves a complete snapshot after validation, retaining the old profile on error.
+func (m *ProfileManager) SaveContext(ctx context.Context, name, version string) error {
+	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.save(locked, name, version) })
 }
 
-func copyProfileConfig(src, dst *os.Root) error {
-	if info, err := src.Lstat("php.ini"); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("php.ini must be a regular file")
-		}
-		data, err := src.ReadFile("php.ini")
-		if err != nil {
-			return err
-		}
-		if err := fsutil.AtomicWriteRoot(dst, "php.ini", data, 0644); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
+// SetBackupLimit selects the retained history size for successful applications.
+func (m *ProfileManager) SetBackupLimit(limit int) error {
+	if limit < 1 || limit > 100 {
+		return fmt.Errorf("backup-keep must be between 1 and 100")
 	}
-	if info, err := src.Lstat("conf.d"); err == nil {
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("conf.d must be a directory")
-		}
-		s, err := src.OpenRoot("conf.d")
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		if err := dst.Mkdir("conf.d", 0755); err != nil && !os.IsExist(err) {
-			return err
-		}
-		d, err := dst.OpenRoot("conf.d")
-		if err != nil {
-			return err
-		}
-		defer d.Close()
-		return fsutil.CopyRootTree(s, d)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
+	m.backupLimit = limit
 	return nil
+}
+
+// Delete deletes a profile under the shared state lock.
+func (m *ProfileManager) Delete(name string) error {
+	return m.DeleteContext(context.Background(), name)
+}
+
+// DeleteContext deletes only the named managed profile.
+func (m *ProfileManager) DeleteContext(ctx context.Context, name string) error {
+	return m.paths.WithStateLock(ctx, func(context.Context) error {
+		if err := fsutil.ValidateName(name); err != nil {
+			return err
+		}
+		root, err := m.paths.OpenDataDir(m.paths.Profiles, false)
+		if err != nil {
+			return err
+		}
+		defer root.Close()
+		return root.RemoveAll(name)
+	})
 }
 
 // CreateDefaultProfiles creates the default profiles.
 func (m *ProfileManager) CreateDefaultProfiles() error {
+	return m.CreateDefaultProfilesContext(context.Background())
+}
+
+// CreateDefaultProfilesContext creates php.ini-only defaults without replacing saved profiles.
+func (m *ProfileManager) CreateDefaultProfilesContext(ctx context.Context) error {
+	return m.paths.WithStateLock(ctx, func(context.Context) error { return m.createDefaultProfiles() })
+}
+
+func (m *ProfileManager) createDefaultProfiles() error {
 	root, err := m.paths.OpenDataDir(m.paths.Profiles, true)
 	if err != nil {
 		return err
@@ -265,6 +211,9 @@ opcache.revalidate_freq=0
 		if err := fsutil.AtomicWriteRoot(root, filepath.Join("development", "php.ini"), []byte(devIni), 0644); err != nil {
 			return err
 		}
+		if err := fsutil.AtomicWriteRoot(root, filepath.Join("development", "profile.json"), []byte(`{"format":1,"mode":"ini-only"}`), 0644); err != nil {
+			return err
+		}
 	}
 
 	// Production profile
@@ -278,7 +227,7 @@ opcache.revalidate_freq=0
 ; Created by phvm
 
 [PHP]
-error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+error_reporting = E_ALL & ~E_DEPRECATED
 display_errors = Off
 display_startup_errors = Off
 log_errors = On
@@ -296,6 +245,9 @@ opcache.memory_consumption=128
 opcache.interned_strings_buffer=16
 `
 		if err := fsutil.AtomicWriteRoot(root, filepath.Join("production", "php.ini"), []byte(prodIni), 0644); err != nil {
+			return err
+		}
+		if err := fsutil.AtomicWriteRoot(root, filepath.Join("production", "profile.json"), []byte(`{"format":1,"mode":"ini-only"}`), 0644); err != nil {
 			return err
 		}
 	}

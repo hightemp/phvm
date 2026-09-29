@@ -159,26 +159,15 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("make: %w", err)
 	}
 
-	// Run make install
-	log.Info("Installing...")
-	if err := i.runMakeInstall(ctx, srcDir); err != nil {
-		return fmt.Errorf("make install: %w", err)
-	}
-
 	// Get extension directory
-	extDir, err := i.getExtensionDir(phpConfig)
+	extDir, err := i.getExtensionDir(ctx, phpConfig)
 	if err != nil {
 		return fmt.Errorf("get extension directory: %w", err)
 	}
 
-	// Record the exact provided module, not a similarly named binary. Binary/ABI
-	// publication validation is tracked separately by PHVM-11.
-	binary := filepath.Join(extDir, extensionBinary(moduleName))
-	if rel, err := filepath.Rel(i.paths.VersionDir(opts.PHPVersion), binary); err == nil && filepath.IsLocal(rel) {
-		binary = rel
-	}
-	if err := recordExtension(i.paths, opts.PHPVersion, opts.Name, moduleName, version, binary, downloadURL); err != nil {
-		return fmt.Errorf("record extension identity: %w", err)
+	log.Info("Validating and publishing extension...")
+	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL); err != nil {
+		return fmt.Errorf("publish extension: %w", err)
 	}
 
 	log.Success("Extension %s %s installed successfully", opts.Name, version)
@@ -252,21 +241,9 @@ func (i *Installer) runMake(ctx context.Context, srcDir string) error {
 	return cmd.Run()
 }
 
-// runMakeInstall runs make install.
-func (i *Installer) runMakeInstall(ctx context.Context, srcDir string) error {
-	cmd := exec.CommandContext(ctx, "make", "install")
-	cmd.Dir = srcDir
-	if i.logWriter != nil {
-		cmd.Stdout = i.logWriter
-		cmd.Stderr = i.logWriter
-	}
-	return cmd.Run()
-}
-
 // getExtensionDir gets the extension directory from php-config.
-func (i *Installer) getExtensionDir(phpConfig string) (string, error) {
-	cmd := exec.Command(phpConfig, "--extension-dir")
-	output, err := cmd.Output()
+func (i *Installer) getExtensionDir(ctx context.Context, phpConfig string) (string, error) {
+	output, err := phpOutput(ctx, phpConfig, "--extension-dir")
 	if err != nil {
 		return "", err
 	}
@@ -285,12 +262,12 @@ func isZendExtension(name string) bool {
 	return false
 }
 
-// Uninstall removes only the exact extension's ini/metadata. Binary removal is handled separately.
+// Uninstall removes the exact extension's configuration and verified owned binary.
 func (i *Installer) Uninstall(ctx context.Context, name, phpVersion string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := removeExact(i.paths, phpVersion, name); err != nil {
+	if err := removeExact(ctx, i.paths, phpVersion, name); err != nil {
 		return err
 	}
 	log.Success("Extension %s uninstalled", name)

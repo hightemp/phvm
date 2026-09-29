@@ -28,14 +28,15 @@ type Metadata struct {
 
 // ExtMetadata holds metadata for an installed extension.
 type ExtMetadata struct {
-	Version     string    `json:"version"`
-	InstalledAt time.Time `json:"installed_at"`
-	Enabled     bool      `json:"enabled"`
-	SourceURL   string    `json:"source_url,omitempty"`
-	Module      string    `json:"module,omitempty"`
-	Binary      string    `json:"binary,omitempty"`
-	IniFile     string    `json:"ini_file,omitempty"`
-	Zend        bool      `json:"zend,omitempty"`
+	Version      string    `json:"version"`
+	InstalledAt  time.Time `json:"installed_at"`
+	Enabled      bool      `json:"enabled"`
+	SourceURL    string    `json:"source_url,omitempty"`
+	Module       string    `json:"module,omitempty"`
+	Binary       string    `json:"binary,omitempty"`
+	BinarySHA256 string    `json:"binary_sha256,omitempty"`
+	IniFile      string    `json:"ini_file,omitempty"`
+	Zend         bool      `json:"zend,omitempty"`
 }
 
 // NewMetadata creates a new Metadata instance.

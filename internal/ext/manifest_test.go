@@ -1,6 +1,7 @@
 package ext
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,8 +34,8 @@ func TestPackageManifestDefinesExactModule(t *testing.T) {
 }
 
 func TestInstallationPersistsPackageModuleBinaryIniMapping(t *testing.T) {
-	p := extensionFixture(t)
-	if err := recordExtension(p, "8.3.30", "pecl_http", "http", "4.3.0", "lib/extensions/http.so", "https://pecl.php.net/get/pecl_http-4.3.0.tgz"); err != nil {
+	p := installationFixture(t, "printf fixture > modules/http.so", "printf '[PHP Modules]\\nhttp\\n'")
+	if err := installHTTP(context.Background(), t, p); err != nil {
 		t.Fatal(err)
 	}
 	meta, err := core.LoadMetadata(p.VersionMetadata("8.3.30"))

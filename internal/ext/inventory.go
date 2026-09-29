@@ -1,6 +1,7 @@
 package ext
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -240,7 +241,7 @@ func (i *inventory) saveMetadata() error {
 	return fsutil.AtomicWriteRoot(i.root, ".phvm-metadata.json", data, 0644)
 }
 
-func removeExact(paths *core.Paths, version, name string) error {
+func removeExact(ctx context.Context, paths *core.Paths, version, name string) error {
 	i, err := readInventory(paths, version)
 	if err != nil {
 		return err
@@ -255,28 +256,39 @@ func removeExact(paths *core.Paths, version, name string) error {
 			return err
 		}
 	}
-	var path string
-	var content []byte
+	php := filepath.Join(paths.VersionBin(i.version), core.PHPBinary())
+	builtin, err := probeModules(ctx, php, "-n", "-m")
+	if err != nil {
+		return err
+	}
+	if builtin[e.Module] {
+		return fmt.Errorf("cannot uninstall built-in module %s", e.Module)
+	}
+	changes := []fileChange{}
+	if e.packageKey != "" {
+		meta := i.metadata.Extensions[e.packageKey]
+		if meta.BinarySHA256 != "" {
+			if err := validateOwnedBinary(i, e); err != nil {
+				return err
+			}
+			changes = append(changes, fileChange{path: meta.Binary, remove: true})
+		}
+	}
 	if len(e.files) > 0 {
-		path = filepath.Join("etc", "conf.d", e.files[0].physical)
-		content, err = i.root.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := i.root.Remove(path); err != nil {
-			return err
-		}
+		changes = append(changes, fileChange{path: filepath.Join("etc", "conf.d", e.files[0].physical), remove: true})
 	}
 	if e.packageKey != "" {
 		delete(i.metadata.Extensions, e.packageKey)
-		if err := i.saveMetadata(); err != nil {
-			if path != "" {
-				_ = fsutil.AtomicWriteRoot(i.root, path, content, 0644)
-			}
+		data, err := json.MarshalIndent(i.metadata, "", "  ")
+		if err != nil {
 			return err
 		}
+		changes = append(changes, fileChange{path: ".phvm-metadata.json", data: data, mode: 0644})
 	}
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return applyFileChanges(i.root, changes)
 }
 
 func setEnabled(paths *core.Paths, version, name string, enabled bool) error {
@@ -323,16 +335,23 @@ func setEnabled(paths *core.Paths, version, name string, enabled bool) error {
 	return nil
 }
 
-func phpOutput(ctx context.Context, php string, args ...string) ([]byte, error) {
+func phpQuery(ctx context.Context, php string, args ...string) ([]byte, []byte, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, php, args...)
 	cmd.WaitDelay = time.Second
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
+	if probeCtx.Err() != nil {
+		return nil, stderr.Bytes(), probeCtx.Err()
+	}
+	return output, stderr.Bytes(), err
+}
+
+func phpOutput(ctx context.Context, php string, args ...string) ([]byte, error) {
+	output, _, err := phpQuery(ctx, php, args...)
 	if err != nil {
-		if probeCtx.Err() != nil {
-			return nil, probeCtx.Err()
-		}
 		return nil, fmt.Errorf("query PHP extensions: %w", redact.Error(err, ""))
 	}
 	return output, nil

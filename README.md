@@ -163,9 +163,19 @@ Missing exact identities return an error and a nonzero CLI status. Multiple
 loading ini files or an ini shared by multiple extensions block mutation; edit
 such files explicitly. Legacy metadata without a module field uses its exact
 package name, and does not guess a different module from the ini filename.
-Uninstall currently removes the matching ini file and metadata entry; the
-extension binary remains on disk. Installation does not yet validate the
-binary's ABI before enabling it.
+Installation requires the exact regular binary produced by the build. Before
+publishing it, phvm loads a temporary copy with the selected PHP and checks the
+module name and startup diagnostics. Enabled extension dependencies are included
+in this isolated check; the working configuration is unchanged. Missing binaries,
+wrong module names and incompatible ABIs fail installation.
+
+Uninstall removes the matching ini, metadata entry and library recorded by phvm.
+The library must remain inside the selected PHP installation and match its
+recorded SHA256. Changed, shared or symlinked libraries block removal. Built-in
+modules cannot be uninstalled. Libraries without recorded ownership, including
+legacy installations, are retained while their matching ini/metadata are removed.
+File writes are atomic and returned write errors trigger rollback; interrupted
+processes and concurrent operations do not have a shared transaction guarantee.
 
 ### Configuration
 

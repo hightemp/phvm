@@ -126,6 +126,7 @@ Examples:
 		phpVersion, _ := cmd.Flags().GetString("php")
 		extVersion, _ := cmd.Flags().GetString("version")
 		jobs := effectiveConfig.General.ParallelJobs
+		sha256sum, _ := cmd.Flags().GetString("sha256")
 
 		var resolveErr error
 		phpVersion, resolveErr = resolvePHPVersion(paths, phpVersion)
@@ -144,6 +145,7 @@ Examples:
 			PHPVersion:  phpVersion,
 			CustomFlags: customFlags,
 			Jobs:        jobs,
+			SHA256:      sha256sum,
 		}
 
 		if err := installer.Install(cmd.Context(), opts); err != nil {
@@ -246,4 +248,5 @@ func init() {
 	extInstallCmd.Flags().String("configure", "", "Additional configure flags")
 	extInstallCmd.Flags().StringArray("configure-flag", nil, "One exact extension configure argument (repeatable; overrides --configure)")
 	extInstallCmd.Flags().Int("jobs", 0, "Number of parallel build jobs (0: extension builder default)")
+	extInstallCmd.Flags().String("sha256", "", "Pin the PECL archive SHA256; verifies cached bytes without channel metadata")
 }

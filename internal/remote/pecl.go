@@ -5,7 +5,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+
+	"github.com/hightemp/phvm/internal/fsutil"
 )
 
 // PECLAPI provides access to pecl.php.net REST API.
@@ -80,6 +83,8 @@ type xmlRelease struct {
 	Date        string   `xml:"da"`
 	FileSize    string   `xml:"f"`
 	DownloadURL string   `xml:"g"`
+	Package     string   `xml:"p"`
+	Channel     string   `xml:"c"`
 }
 
 // ListPackages returns all available PECL packages.
@@ -236,6 +241,12 @@ func (api *PECLAPI) GetLatestVersion(ctx context.Context, name string) (string, 
 
 // GetRelease returns information about a specific release.
 func (api *PECLAPI) GetRelease(ctx context.Context, name, version string) (*PECLRelease, error) {
+	if err := fsutil.ValidateName(name); err != nil {
+		return nil, err
+	}
+	if err := fsutil.ValidateName(version); err != nil {
+		return nil, err
+	}
 	url := fmt.Sprintf("%s/rest/r/%s/%s.xml", api.baseURL, strings.ToLower(name), version)
 
 	resp, err := api.client.Get(ctx, url)
@@ -261,12 +272,24 @@ func (api *PECLAPI) GetRelease(ctx context.Context, name, version string) (*PECL
 	if err := xml.Unmarshal(body, &release); err != nil {
 		return nil, fmt.Errorf("parse release: %w", err)
 	}
+	if !strings.EqualFold(strings.TrimSpace(release.Package), name) || release.Version != version || release.Channel != "pecl.php.net" {
+		return nil, fmt.Errorf("PECL release identity mismatch")
+	}
+	size, err := strconv.ParseInt(release.FileSize, 10, 64)
+	if err != nil || size <= 0 {
+		return nil, fmt.Errorf("invalid PECL archive size")
+	}
+	expectedURL := api.GetDownloadURL(strings.ToLower(name), version)
+	if release.DownloadURL != expectedURL && release.DownloadURL != strings.TrimSuffix(expectedURL, ".tgz") {
+		return nil, fmt.Errorf("untrusted PECL archive URL")
+	}
 
 	return &PECLRelease{
 		Version:     release.Version,
 		Stability:   release.Stability,
 		DownloadURL: release.DownloadURL,
 		Date:        release.Date,
+		FileSize:    size,
 	}, nil
 }
 

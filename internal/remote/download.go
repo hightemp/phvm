@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,24 +36,101 @@ func (d *Downloader) SetShowProgress(show bool) {
 	d.showProgress = show
 }
 
+// Client returns the HTTP client used by this downloader.
+func (d *Downloader) Client() *Client { return d.client }
+
 // Download downloads a file, rechecking the cache while holding its lock.
 func (d *Downloader) Download(ctx context.Context, url, filename string) (string, error) {
-	return d.downloadCached(ctx, url, filename, "")
+	return d.downloadCached(ctx, url, filename, DownloadChecks{})
 }
 
 // DownloadVerified verifies SHA256 before publishing and before reusing cache.
 func (d *Downloader) DownloadVerified(ctx context.Context, url, filename, expected string) (string, error) {
-	expected = strings.ToLower(strings.TrimSpace(expected))
-	if len(expected) != 64 {
-		return "", fmt.Errorf("invalid expected SHA256")
-	}
-	if _, err := hex.DecodeString(expected); err != nil {
-		return "", fmt.Errorf("invalid expected SHA256: %w", err)
-	}
-	return d.downloadCached(ctx, url, filename, expected)
+	return d.DownloadChecked(ctx, url, filename, DownloadChecks{SHA256: expected})
 }
 
-func (d *Downloader) downloadCached(ctx context.Context, url, filename, expected string) (string, error) {
+// DownloadChecks defines checks performed before publication and cache reuse.
+type DownloadChecks struct {
+	SHA256   string
+	Size     int64 // Zero means unspecified.
+	Validate func(context.Context, string) error
+}
+
+// NormalizeSHA256 validates a required, hexadecimal SHA256 digest.
+func NormalizeSHA256(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != 64 {
+		return "", fmt.Errorf("invalid expected SHA256")
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return "", fmt.Errorf("invalid expected SHA256: %w", err)
+	}
+	return value, nil
+}
+
+// DownloadChecked validates a candidate before publishing it; an invalid cache
+// is removed and fetched once. Failed fresh candidates are never published.
+func (d *Downloader) DownloadChecked(ctx context.Context, url, filename string, checks DownloadChecks) (string, error) {
+	if checks.SHA256 == "" && checks.Validate == nil {
+		return "", fmt.Errorf("download verification is required")
+	}
+	if checks.SHA256 != "" {
+		var err error
+		checks.SHA256, err = NormalizeSHA256(checks.SHA256)
+		if err != nil {
+			return "", err
+		}
+	}
+	if checks.Size < 0 {
+		return "", fmt.Errorf("invalid expected download size")
+	}
+	return d.downloadCached(ctx, url, filename, checks)
+}
+
+func checkDownload(ctx context.Context, path string, checks DownloadChecks) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	name := filepath.Base(path)
+	info, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("download must be a regular file")
+	}
+	if checks.Size > 0 && info.Size() != checks.Size {
+		return fmt.Errorf("download size mismatch: got %d, expected %d", info.Size(), checks.Size)
+	}
+	if checks.SHA256 != "" {
+		file, err := root.Open(name)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		_, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if err := errors.Join(copyErr, closeErr); err != nil {
+			return err
+		}
+		if hex.EncodeToString(hash.Sum(nil)) != checks.SHA256 {
+			return fmt.Errorf("SHA256 mismatch for %s", filepath.Base(path))
+		}
+	}
+	if checks.Validate != nil {
+		if err := checks.Validate(ctx, path); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (d *Downloader) downloadCached(ctx context.Context, url, filename string, checks DownloadChecks) (string, error) {
 	if err := fsutil.ValidateName(filename); err != nil {
 		return "", err
 	}
@@ -63,35 +141,29 @@ func (d *Downloader) downloadCached(ctx context.Context, url, filename, expected
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("cached download must be a regular file")
 			}
-			if expected == "" {
+			if checks.SHA256 == "" && checks.Validate == nil {
 				return nil
 			}
-			root, err := os.OpenRoot(d.cacheDir)
-			if err != nil {
+			checkErr := checkDownload(ctx, path, checks)
+			if checkErr == nil {
+				return nil
+			}
+			var pathError *os.PathError
+			if errors.As(checkErr, &pathError) && !os.IsNotExist(checkErr) {
+				return checkErr
+			}
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			defer root.Close()
-			file, err := root.Open(filename)
-			if err != nil {
+			log.Info("Cached %s failed verification; downloading again", filename)
+			if err := os.Remove(path); err != nil {
 				return err
 			}
-			defer file.Close()
-			hash := sha256.New()
-			if _, err := io.Copy(hash, file); err != nil {
-				return err
-			}
-			if err := file.Close(); err != nil {
-				return err
-			}
-			if hex.EncodeToString(hash.Sum(nil)) == expected {
-				return ctx.Err()
-			}
-			log.Info("Cached %s failed SHA256; downloading again", filename)
 		}
 		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return d.download(ctx, url, path, expected)
+		return d.download(ctx, url, path, checks)
 	})
 	if err != nil {
 		return "", err
@@ -107,11 +179,11 @@ func (d *Downloader) DownloadIfNotCached(ctx context.Context, url, filename stri
 // DownloadToPath atomically refreshes one destination without modifying its old inode.
 func (d *Downloader) DownloadToPath(ctx context.Context, url, destPath string) error {
 	return fsutil.WithDirectoryLock(ctx, filepath.Dir(destPath), func() error {
-		return d.download(ctx, url, destPath, "")
+		return d.download(ctx, url, destPath, DownloadChecks{})
 	})
 }
 
-func (d *Downloader) download(ctx context.Context, url, destPath, expected string) error {
+func (d *Downloader) download(ctx context.Context, url, destPath string, checks DownloadChecks) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -154,7 +226,7 @@ func (d *Downloader) download(ctx context.Context, url, destPath, expected strin
 	}
 	hash := sha256.New()
 	var writer io.Writer = f
-	if expected != "" {
+	if checks.SHA256 != "" {
 		writer = io.MultiWriter(f, hash)
 	}
 	written, err := io.Copy(writer, reader)
@@ -164,13 +236,17 @@ func (d *Downloader) download(ctx context.Context, url, destPath, expected strin
 	if contentLength >= 0 && written != contentLength {
 		return fmt.Errorf("incomplete download: got %d, expected %d", written, contentLength)
 	}
-	if expected != "" && hex.EncodeToString(hash.Sum(nil)) != expected {
+	if checks.SHA256 != "" && hex.EncodeToString(hash.Sum(nil)) != checks.SHA256 {
 		return fmt.Errorf("SHA256 mismatch for %s", name)
 	}
 	if err := f.Sync(); err != nil {
 		return err
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	// All semantic checks run on staging, before any consumer can reuse cache.
+	if err := checkDownload(ctx, filepath.Join(dir, tmp), checks); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {

@@ -26,6 +26,7 @@ type ClientOptions struct {
 	Timeout   time.Duration
 	Retries   int
 	Mirror    string
+	Transport http.RoundTripper
 }
 
 // DefaultClientOptions returns default client options.
@@ -45,6 +46,18 @@ func NewClient(opts ClientOptions) *Client {
 	retryClient.RetryWaitMin = 1 * time.Second
 	retryClient.RetryWaitMax = 30 * time.Second
 	retryClient.HTTPClient.Timeout = opts.Timeout
+	retryClient.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return fmt.Errorf("HTTPS redirect downgrade rejected")
+		}
+		return nil
+	}
+	if opts.Transport != nil {
+		retryClient.HTTPClient.Transport = opts.Transport
+	}
 	retryClient.Logger = nil // Disable default logging
 
 	// Custom retry policy that retries on 503 (WAF) and network errors
@@ -70,6 +83,9 @@ func NewClient(opts ClientOptions) *Client {
 
 // Get performs a GET request.
 func (c *Client) Get(ctx context.Context, url string) (*http.Response, error) {
+	if c == nil {
+		return nil, fmt.Errorf("HTTP client is not configured")
+	}
 	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", redact.Error(err, url))

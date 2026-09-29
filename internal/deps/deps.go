@@ -3,6 +3,7 @@ package deps
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ type Dependency struct {
 	Name         string
 	Version      string
 	URL          string
+	SHA256       string
 	ConfigureCmd []string
 	Required     bool     // If false, skip if build fails
 	DependsOn    []string // Dependencies that must be built first
@@ -65,6 +67,7 @@ func GetRequiredDeps(phpVersion string) []Dependency {
 			Name:    "openssl",
 			Version: "1.0.2u",
 			URL:     "https://www.openssl.org/source/openssl-1.0.2u.tar.gz",
+			SHA256:  "ecd0c6ffb493dd06707d38b14bb4d8c2288bb7033735606569d8f90f89669d16",
 			ConfigureCmd: []string{
 				"./config",
 				"--prefix=%PREFIX%",
@@ -80,6 +83,7 @@ func GetRequiredDeps(phpVersion string) []Dependency {
 			Name:    "curl",
 			Version: "8.5.0",
 			URL:     "https://curl.se/download/curl-8.5.0.tar.gz",
+			SHA256:  "05fc17ff25b793a437a0906e0484b82172a9f4de02be5ed447e0cab8c3475add",
 			ConfigureCmd: []string{
 				"./configure",
 				"--prefix=%PREFIX%",
@@ -119,6 +123,7 @@ func GetRequiredDeps(phpVersion string) []Dependency {
 			Name:    "openssl",
 			Version: "1.1.1w",
 			URL:     "https://www.openssl.org/source/openssl-1.1.1w.tar.gz",
+			SHA256:  "cf3098950cb4d853ad95c0841f1f9c6d3dc102dccfcacd521d93925208b76ac8",
 			ConfigureCmd: []string{
 				"./config",
 				"--prefix=%PREFIX%",
@@ -134,6 +139,7 @@ func GetRequiredDeps(phpVersion string) []Dependency {
 			Name:    "curl",
 			Version: "8.5.0",
 			URL:     "https://curl.se/download/curl-8.5.0.tar.gz",
+			SHA256:  "05fc17ff25b793a437a0906e0484b82172a9f4de02be5ed447e0cab8c3475add",
 			ConfigureCmd: []string{
 				"./configure",
 				"--prefix=%PREFIX%",
@@ -213,11 +219,26 @@ func (m *DepsManager) EnsureDeps(ctx context.Context, phpVersion string) error {
 
 // ensureDep ensures a single dependency is built.
 func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir string) error {
+	if err := fsutil.ValidateName(dep.Name); err != nil {
+		return err
+	}
+	if err := fsutil.ValidateName(dep.Version); err != nil {
+		return err
+	}
+	var err error
+	dep.SHA256, err = remote.NormalizeSHA256(dep.SHA256)
+	if err != nil {
+		return err
+	}
+	dependencies, err := m.dependencyHashes(dep, depsDir)
+	if err != nil {
+		return fmt.Errorf("dependency trust markers: %w", err)
+	}
 	prefix := filepath.Join(depsDir, dep.Name)
 	markerFile := filepath.Join(prefix, ".phvm-installed")
 
 	// Check if already built
-	if fsutil.Exists(markerFile) {
+	if m.ready(dep, depsDir) {
 		log.Debug("Dependency %s-%s already built", dep.Name, dep.Version)
 		return nil
 	}
@@ -226,17 +247,26 @@ func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir str
 
 	// Create directories
 	sourceDir := filepath.Join(depsDir, "src", fmt.Sprintf("%s-%s", dep.Name, dep.Version))
-	if err := fsutil.EnsureDir(sourceDir); err != nil {
-		return fmt.Errorf("create source dir: %w", err)
-	}
-
 	// Download
-	tarballPath := filepath.Join(depsDir, "src", filepath.Base(dep.URL))
-	if !fsutil.Exists(tarballPath) {
-		log.Info("Downloading %s...", dep.Name)
-		if err := m.downloader.DownloadToPath(ctx, dep.URL, tarballPath); err != nil {
-			return fmt.Errorf("download: %w", err)
-		}
+	downloader := remote.NewDownloader(m.downloader.Client(), filepath.Join(depsDir, "src"))
+	tarballPath, err := downloader.DownloadVerified(ctx, dep.URL, filepath.Base(dep.URL), dep.SHA256)
+	if err != nil {
+		return fmt.Errorf("download: %w", err)
+	}
+	root, err := m.paths.OpenDataDir(prefix, true)
+	if err != nil {
+		return err
+	}
+	if err := root.Remove(".phvm-installed"); err != nil && !os.IsNotExist(err) {
+		_ = root.Close()
+		return err
+	}
+	_ = root.Close()
+	if err := os.RemoveAll(sourceDir); err != nil {
+		return err
+	}
+	if err := fsutil.EnsureDir(sourceDir); err != nil {
+		return err
 	}
 
 	// Extract
@@ -277,7 +307,14 @@ func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir str
 	}
 
 	// Create marker file
-	if err := os.WriteFile(markerFile, []byte(dep.Version), 0644); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(dependencyMarker{Schema: 1, Name: dep.Name, Version: dep.Version, URL: dep.URL, SHA256: dep.SHA256, ConfigureCmd: dep.ConfigureCmd, Dependencies: dependencies})
+	if err != nil {
+		return err
+	}
+	if err := fsutil.AtomicWriteFile(markerFile, data, 0644); err != nil {
 		return fmt.Errorf("create marker: %w", err)
 	}
 
@@ -638,8 +675,7 @@ func (m *DepsManager) GetConfigureFlags(phpVersion string) []string {
 
 	for _, dep := range deps {
 		prefix := filepath.Join(depsDir, dep.Name)
-		markerFile := filepath.Join(prefix, ".phvm-installed")
-		if !fsutil.Exists(markerFile) {
+		if !m.ready(dep, depsDir) {
 			continue
 		}
 

@@ -3,6 +3,8 @@ package cli
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,7 +53,7 @@ func TestCLIExtensionConfigureUsesExactArgumentsAndOwnSettings(t *testing.T) {
 			}
 			gz := gzip.NewWriter(file)
 			tw := tar.NewWriter(gz)
-			for name, data := range map[string]string{"package.xml": "<package><name>redis</name><providesextension>redis</providesextension></package>", "redis-6.0.0/config.m4": "fixture", "redis-6.0.0/configure": script} {
+			for name, data := range map[string]string{"package.xml": "<package><name>redis</name><channel>pecl.php.net</channel><version><release>6.0.0</release></version><providesextension>redis</providesextension></package>", "redis-6.0.0/config.m4": "fixture", "redis-6.0.0/configure": script} {
 				if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(data))}); err != nil {
 					t.Fatal(err)
 				}
@@ -69,7 +71,12 @@ func TestCLIExtensionConfigureUsesExactArgumentsAndOwnSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			literal := "--with-message=$(touch " + marker + ") a,b"
-			args := []string{"--phvm-dir", p.Root, "ext", "install", "redis", "--version", "6.0.0"}
+			archive, err := os.ReadFile(p.ExtensionCachePath("redis", "6.0.0"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := sha256.Sum256(archive)
+			args := []string{"--phvm-dir", p.Root, "ext", "install", "redis", "--version", "6.0.0", "--sha256", hex.EncodeToString(hash[:])}
 			if repeated {
 				args = append(args, "--configure-flag="+literal, "--configure-flag=--enable-redis", "--configure-flag=--disable-redis")
 			} else {

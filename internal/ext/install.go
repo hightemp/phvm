@@ -59,6 +59,7 @@ type InstallOptions struct {
 	PHPVersion  string
 	CustomFlags []string
 	Jobs        int
+	SHA256      string // Optional user-pinned archive digest.
 }
 
 // Install installs a PECL extension.
@@ -73,6 +74,13 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	i.buildEnvironment = extensionBuildEnvironment(opts.CustomFlags)
 	if err := fsutil.ValidateName(opts.Name); err != nil {
 		return err
+	}
+	if opts.SHA256 != "" {
+		hash, err := remote.NormalizeSHA256(opts.SHA256)
+		if err != nil {
+			return err
+		}
+		opts.SHA256 = hash
 	}
 	var err error
 	opts.PHPVersion, err = i.paths.CheckVersionPath(opts.PHPVersion)
@@ -122,13 +130,37 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	if err := fsutil.ValidateName(version); err != nil {
 		return err
 	}
-	downloadURL := i.peclAPI.GetDownloadURL(opts.Name, version)
+	downloadURL := i.peclAPI.GetDownloadURL(strings.ToLower(opts.Name), version)
 	filename := fmt.Sprintf("%s-%s.tgz", opts.Name, version)
 
 	downloader := remote.NewDownloader(i.client, i.paths.Extensions)
-	tgzPath, err := downloader.Download(ctx, downloadURL, filename)
+	checks := remote.DownloadChecks{SHA256: opts.SHA256}
+	var manifest *remote.PECLManifest
+	if opts.SHA256 == "" {
+		release, err := i.peclAPI.GetRelease(ctx, opts.Name, version)
+		if err != nil {
+			return fmt.Errorf("PECL release metadata: %w", err)
+		}
+		checks.Size = release.FileSize
+		manifest, err = i.peclAPI.GetManifest(ctx, opts.Name, version)
+		if err != nil {
+			return fmt.Errorf("PECL package metadata: %w", err)
+		}
+	}
+	checks.Validate = func(ctx context.Context, path string) error {
+		return remote.ValidatePECLArchive(ctx, path, opts.Name, version, manifest)
+	}
+	tgzPath, err := downloader.DownloadChecked(ctx, downloadURL, filename, checks)
 	if err != nil {
 		return fmt.Errorf("download extension: %w", err)
+	}
+	sourceHash, err := remote.NewVerifier(i.client, "").ComputeSHA256(tgzPath)
+	if err != nil {
+		return err
+	}
+	method := "pecl-https-manifest"
+	if opts.SHA256 != "" {
+		method = "sha256-pinned"
 	}
 
 	// Create temp directory for building
@@ -179,7 +211,7 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	log.Info("Validating and publishing extension...")
-	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL, configurationRecord{Flags: i.actualFlags, Environment: i.actualEnvironment}); err != nil {
+	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL, configurationRecord{Flags: i.actualFlags, Environment: i.actualEnvironment, SourceSHA256: sourceHash, SourceVerification: method}); err != nil {
 		return fmt.Errorf("publish extension: %w", err)
 	}
 

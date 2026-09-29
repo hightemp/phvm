@@ -19,6 +19,7 @@ func TestPackageManifestDefinesExactModule(t *testing.T) {
 		{name: "legacy missing module falls back exactly", xml: `<package><name>pecl_http</name></package>`, want: "pecl_http"},
 		{name: "unsafe module", xml: `<package><name>pecl_http</name><providesextension>../../redis</providesextension></package>`, fail: true},
 		{name: "bad XML", xml: `<package>`, fail: true},
+		{name: "Latin-1 channel XML", xml: "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><package><name>pecl_http</name><notes>caf\xe9</notes><providesextension>http</providesextension></package>", want: "http"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()

@@ -32,6 +32,14 @@ curl -fsSL https://raw.githubusercontent.com/hightemp/phvm/main/scripts/install.
 iwr -useb https://raw.githubusercontent.com/hightemp/phvm/main/scripts/install.ps1 | iex
 ```
 
+Both installers download `checksums.txt` from the selected GitHub release and
+require exactly one valid SHA256 entry for the archive. Verification happens
+before extraction; only a regular binary is staged and published. Missing or
+ambiguous checksums, changed bytes and invalid archives preserve the active
+binary. Linux/macOS requires curl or wget and one of sha256sum, shasum or openssl.
+Curl is preferred; wget handles a bounded redirect chain explicitly, checking
+that each destination uses HTTPS before making the next request.
+
 ### Shell Setup
 
 Add to your shell profile:
@@ -325,6 +333,48 @@ PHP archives are checked against the expected SHA256 before publication and
 before reuse; a damaged cached archive is downloaded again. Failed or cancelled
 downloads preserve the previous published file. Lock files remain outside the
 cleared cache parts so waiting commands continue to use the same lock.
+
+## Download verification
+
+| Component | Trust and checks before execution |
+|-----------|----------------------------------|
+| PHP source | Required SHA256 from release metadata; configured GPG verification uses the PHP keyring |
+| Private OpenSSL/curl | Required SHA256 pinned in phvm's dependency catalog |
+| PECL by default | HTTPS channel metadata, exact package/version, archive size, separately fetched file checksums and safe archive structure |
+| PECL with `--sha256` | Required user-pinned archive digest and package/version/structure validation; exact cached releases can be used without channel metadata |
+| phvm release binary | Required SHA256 from the selected GitHub release's `checksums.txt` |
+
+Downloads are checked in staging and again before cache reuse. An invalid cache
+is discarded and fetched once; failed replacements are not published. HTTP
+retry settings still apply to transport failures. HTTPS redirects to HTTP are
+rejected. An explicitly configured HTTP PHP mirror continues to use HTTP.
+
+PECL's published file checksums use MD5. They detect disagreement between the
+archive and channel metadata; they are **not a signature or a strong independent
+trust anchor**. For a fixed digest obtained from a trusted source:
+
+```bash
+phvm ext install redis --version 6.0.0 \
+  --sha256="${PECL_ARCHIVE_SHA256:?Set the trusted archive SHA256}"
+```
+
+Without a pin, installation stops if channel metadata is unavailable, invalid
+or inconsistent. Archive checks reject missing/extra files, duplicate entries,
+unsafe paths, links and special files. XML manifests are limited to 8 MiB;
+archives to 100,000 entries and 1 GiB of decompressed data. Extension metadata
+records the archive SHA256 and verification method. An observed digest from
+an unpinned download does not become an independent trust anchor.
+
+Private dependency markers record the exact version, source URL, archive digest,
+configure command and build dependency fingerprints. Legacy or mismatched
+markers trigger rebuilding before PHP compilation; doctor reports these
+dependencies as deferred. Pinning source bytes does not update the supported
+legacy library versions or attest to the publisher's security.
+
+Release checksums and default PECL metadata rely on the corresponding HTTPS
+publisher. Independent release signatures/provenance are not checked by the
+bootstrap installers. Run `make test-installers` for isolated installer tests;
+PowerShell cases require pwsh and also run in the Windows CI matrix.
 
 ## Build Profiles
 

@@ -3,7 +3,6 @@ package doctor
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -101,8 +100,7 @@ func CheckFor(ctx context.Context, opts Options) (*DoctorResult, error) {
 			if (dep.Name == "curl") != (probe.name == "libcurl") {
 				continue
 			}
-			marker := filepath.Join(opts.Paths.Root, "deps", version.Full(), dep.Name, ".phvm-installed")
-			if _, err := os.Stat(marker); os.IsNotExist(err) {
+			if !deps.NewDepsManager(opts.Paths, nil, 1).IsReady(version.Full(), dep) {
 				result.Checks = append(result.Checks, CheckResult{Name: probe.name + " (lib)", Required: true, Deferred: true, HelpText: "phvm will build private " + dep.Name + " " + dep.Version + "; configure will check it after the build"})
 				deferred = true
 			}

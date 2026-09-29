@@ -11,7 +11,7 @@ GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION := v1.8.0
 GOSEC_VERSION := v2.29.0
 
-.PHONY: all build build-all clean test test-release release lint fmt vet verify security govulncheck gosec install uninstall help
+.PHONY: all build build-all clean test test-release test-installers release lint fmt vet verify security govulncheck gosec install uninstall help
 
 # Default target
 all: lint test build
@@ -45,6 +45,10 @@ test:
 # Test release automation against temporary local Git repositories
 test-release:
 	python3 -B -m unittest discover -s scripts/tests -p 'test_release.py' -v
+
+# Test installer verification/publication with isolated mocked downloads
+test-installers:
+	python3 -B -m unittest discover -s scripts/tests -p 'test_installers.py' -v
 
 # Commit and publish the version from VERSION, triggering the release workflow
 release:
@@ -137,6 +141,7 @@ help:
 	@echo "  clean          Remove build artifacts"
 	@echo "  test           Run tests"
 	@echo "  test-release   Test release automation with local Git repositories"
+	@echo "  test-installers Test release archive verification and installer publication"
 	@echo "  test-coverage  Run tests with coverage report"
 	@echo "  release        Commit all changes and push the VERSION tag to origin"
 	@echo "  lint           Run golangci-lint"

@@ -28,6 +28,9 @@ jobs:
       - name: Test release automation
         run: make test-release
 
+      - name: Test installers
+        run: make test-installers
+
       - name: Run tests
         run: go test -v ./...
 

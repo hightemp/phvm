@@ -76,6 +76,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make test-release
 
+      - name: Test installers
+        run: python -B -m unittest discover -s scripts/tests -p test_installers.py -v
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: matrix.os == 'ubuntu-latest'

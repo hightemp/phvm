@@ -50,7 +50,7 @@ func writeHTTPArchive(t *testing.T, p *core.Paths, module string) {
 	gz := gzip.NewWriter(file)
 	tw := tar.NewWriter(gz)
 	for name, data := range map[string]string{
-		"package.xml":               `<package><name>pecl_http</name><providesextension>` + module + `</providesextension></package>`,
+		"package.xml":               `<package><name>pecl_http</name><channel>pecl.php.net</channel><version><release>4.3.0</release></version><providesextension>` + module + `</providesextension></package>`,
 		"pecl_http-4.3.0/config.m4": "fixture",
 		"pecl_http-4.3.0/configure": "#!/bin/sh\nif [ \"$1\" = --help ]; then echo '--with-greeting --with-php-config'; fi\nexit 0\n",
 	} {
@@ -70,7 +70,12 @@ func writeHTTPArchive(t *testing.T, p *core.Paths, module string) {
 
 func installHTTP(ctx context.Context, t *testing.T, p *core.Paths) error {
 	t.Helper()
-	return NewInstaller(p, nil).Install(ctx, InstallOptions{Name: "pecl_http", Version: "4.3.0", PHPVersion: "8.3.30"})
+	archive, err := os.ReadFile(p.ExtensionCachePath("pecl_http", "4.3.0"))
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(archive)
+	return NewInstaller(p, nil).Install(ctx, InstallOptions{Name: "pecl_http", Version: "4.3.0", PHPVersion: "8.3.30", SHA256: hex.EncodeToString(hash[:])})
 }
 
 func TestReinstallDoesNotOverwriteForeignIniWhenOwnedLoaderIsMissing(t *testing.T) {

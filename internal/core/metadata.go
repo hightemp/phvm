@@ -34,17 +34,19 @@ type Metadata struct {
 
 // ExtMetadata holds metadata for an installed extension.
 type ExtMetadata struct {
-	ConfigureFlags   []string          `json:"configure_flags,omitempty"`
-	BuildEnvironment map[string]string `json:"build_environment,omitempty"`
-	Version          string            `json:"version"`
-	InstalledAt      time.Time         `json:"installed_at"`
-	Enabled          bool              `json:"enabled"`
-	SourceURL        string            `json:"source_url,omitempty"`
-	Module           string            `json:"module,omitempty"`
-	Binary           string            `json:"binary,omitempty"`
-	BinarySHA256     string            `json:"binary_sha256,omitempty"`
-	IniFile          string            `json:"ini_file,omitempty"`
-	Zend             bool              `json:"zend,omitempty"`
+	ConfigureFlags     []string          `json:"configure_flags,omitempty"`
+	BuildEnvironment   map[string]string `json:"build_environment,omitempty"`
+	Version            string            `json:"version"`
+	InstalledAt        time.Time         `json:"installed_at"`
+	Enabled            bool              `json:"enabled"`
+	SourceURL          string            `json:"source_url,omitempty"`
+	SourceSHA256       string            `json:"source_sha256,omitempty"`
+	SourceVerification string            `json:"source_verification,omitempty"`
+	Module             string            `json:"module,omitempty"`
+	Binary             string            `json:"binary,omitempty"`
+	BinarySHA256       string            `json:"binary_sha256,omitempty"`
+	IniFile            string            `json:"ini_file,omitempty"`
+	Zend               bool              `json:"zend,omitempty"`
 }
 
 // NewMetadata creates a new Metadata instance.

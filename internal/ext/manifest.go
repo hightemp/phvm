@@ -1,13 +1,12 @@
 package ext
 
 import (
-	"encoding/xml"
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/hightemp/phvm/internal/fsutil"
+	"github.com/hightemp/phvm/internal/remote"
 )
 
 func packageModule(buildDir, pkg string) (string, error) {
@@ -23,17 +22,11 @@ func packageModule(buildDir, pkg string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var manifest struct {
-		Name   string `xml:"name"`
-		Module string `xml:"providesextension"`
-	}
-	if err := xml.Unmarshal(data, &manifest); err != nil {
+	provided, err := remote.PECLPackageModule(data, pkg)
+	if err != nil {
 		return "", fmt.Errorf("parse PECL package.xml: %w", err)
 	}
-	if manifest.Name != "" && !strings.EqualFold(strings.TrimSpace(manifest.Name), pkg) {
-		return "", fmt.Errorf("PECL manifest package does not match requested package")
-	}
-	module := canonicalModule(manifest.Module)
+	module := canonicalModule(provided)
 	if module == "" {
 		module = canonicalModule(pkg)
 	}

@@ -227,7 +227,12 @@ func validationArgs(i *inventory, module, artifact, extDir string) ([]string, er
 	return append(args, "-d", key+artifact, "-m"), nil
 }
 
-func publishExtension(ctx context.Context, paths *core.Paths, phpVersion, pkg, module, version, srcDir, extDir, source string) error {
+type configurationRecord struct {
+	Flags       []string
+	Environment map[string]string
+}
+
+func publishExtension(ctx context.Context, paths *core.Paths, phpVersion, pkg, module, version, srcDir, extDir, source string, records ...configurationRecord) error {
 	i, err := readInventory(paths, phpVersion)
 	if err != nil {
 		return err
@@ -361,6 +366,10 @@ func publishExtension(ctx context.Context, paths *core.Paths, phpVersion, pkg, m
 	entry := i.metadata.Extensions[pkg]
 	entry.Module, entry.Binary, entry.IniFile = module, binary, iniName
 	entry.BinarySHA256, entry.SourceURL, entry.Zend = binaryHash(data), source, isZendExtension(module)
+	if len(records) > 0 {
+		entry.ConfigureFlags = records[0].Flags
+		entry.BuildEnvironment = records[0].Environment
+	}
 	i.metadata.Extensions[pkg] = entry
 	metadata, err := json.MarshalIndent(i.metadata, "", "  ")
 	if err != nil {

@@ -2,12 +2,7 @@
 package build
 
 import (
-	"context"
-	"fmt"
-	"strings"
-	"time"
-
-	"github.com/hightemp/phvm/internal/toolchain"
+	"github.com/hightemp/phvm/internal/configure"
 )
 
 // Profile represents a build profile with configure flags.
@@ -27,7 +22,7 @@ func GetProfile(name string) *Profile {
 	case "full":
 		return FullProfile()
 	default:
-		return CommonProfile()
+		return nil
 	}
 }
 
@@ -132,35 +127,7 @@ func ListProfiles() []*Profile {
 // MergeFlags merges profile flags with custom flags.
 // Custom flags override profile flags with the same option.
 func MergeFlags(profile *Profile, custom []string) []string {
-	// Start with profile flags
-	flags := make([]string, len(profile.Flags))
-	copy(flags, profile.Flags)
-
-	// Add custom flags (they take precedence)
-	for _, flag := range custom {
-		// Check if this flag overrides an existing one
-		found := false
-		for i, pf := range flags {
-			if flagsConflict(pf, flag) {
-				flags[i] = flag
-				found = true
-				break
-			}
-		}
-		if !found {
-			flags = append(flags, flag)
-		}
-	}
-
-	return flags
-}
-
-// flagsConflict checks if two configure flags conflict.
-func flagsConflict(a, b string) bool {
-	// Extract the option name (e.g., "--enable-foo" -> "foo")
-	optA := extractOption(a)
-	optB := extractOption(b)
-	return optA == optB
+	return configure.Merge(profile.Flags, custom)
 }
 
 // extractOption extracts the option name from a configure flag.
@@ -180,52 +147,4 @@ func extractOption(flag string) string {
 		}
 	}
 	return flag
-}
-
-// FilterFlagsForVersion filters configure flags based on PHP version.
-// Some extensions don't work with certain OpenSSL versions.
-func FilterFlagsForVersion(flags []string, phpVersion string) []string {
-	parts := strings.Split(phpVersion, ".")
-	if len(parts) < 2 {
-		return flags
-	}
-	var major, minor int
-	_, _ = fmt.Sscanf(parts[0], "%d", &major)
-	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
-
-	// PHP < 8.1 with OpenSSL 3.x: curl extension links against system OpenSSL
-	// which conflicts with our custom OpenSSL 1.1. Disable curl.
-	if major < 8 || (major == 8 && minor < 1) {
-		// Check if system has OpenSSL 3.x
-		if hasOpenSSL3() {
-			filtered := make([]string, 0, len(flags))
-			for _, flag := range flags {
-				opt := extractOption(flag)
-				// Skip curl - it links against system OpenSSL 3.x
-				if opt == "curl" {
-					continue
-				}
-				filtered = append(filtered, flag)
-			}
-			return filtered
-		}
-	}
-
-	return flags
-}
-
-// hasOpenSSL3 checks if the system has OpenSSL 3.x.
-func hasOpenSSL3() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	cmd, err := toolchain.Current().Command(ctx, "PKG_CONFIG", "pkg-config", "--modversion", "openssl")
-	if err != nil {
-		return false
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	version := strings.TrimSpace(string(output))
-	return strings.HasPrefix(version, "3.")
 }

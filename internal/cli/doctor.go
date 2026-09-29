@@ -25,7 +25,7 @@ Compiled probe programs are never run.`,
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		version, _ := cmd.Flags().GetString("php")
-		result, err := doctor.CheckFor(cmd.Context(), doctor.Options{PHPVersion: version, Profile: effectiveConfig.General.DefaultProfile, CustomFlags: effectiveConfig.Build.DefaultFlags, Paths: GetPaths(), GPGRequired: effectiveConfig.Verify.GPG && !effectiveConfig.Verify.GPGFallbackSHA256})
+		result, err := doctor.CheckFor(cmd.Context(), doctor.Options{PHPVersion: version, Profile: effectiveConfig.General.DefaultProfile, ConfigFlags: configureBaseFlags, CustomFlags: configureCLIFlags, Paths: GetPaths(), GPGRequired: effectiveConfig.Verify.GPG && !effectiveConfig.Verify.GPGFallbackSHA256})
 		if err != nil {
 			return err
 		}
@@ -44,4 +44,5 @@ func init() {
 	doctorCmd.Flags().String("php", "current", "Target PHP version: current, X.Y or X.Y.Z (no download)")
 	doctorCmd.Flags().String("profile", "common", "Build profile (minimal, common, full)")
 	doctorCmd.Flags().String("configure", "", "Additional PHP configure flags")
+	doctorCmd.Flags().StringArray("configure-flag", nil, "One exact configure argument (repeatable; overrides --configure)")
 }

@@ -200,7 +200,8 @@ func (b *Builder) candidateMetadata(opts BuildOptions, duration time.Duration, p
 	} else if opts.SourceURL != "" || opts.SHA256 != "" {
 		return nil, fmt.Errorf("source metadata requires successful verification")
 	}
-	metadata.ConfigureFlags = b.configureArguments(opts.Version, b.paths.VersionDir(opts.Version))
+	metadata.ConfigureFlags = append([]string{}, b.actualFlags...)
+	metadata.BuildEnvironment = b.actualEnvironment
 	metadata.BuildProfile, metadata.BuildDuration = b.profile.Name, int64(duration.Seconds())
 	if previous != nil {
 		metadata.Extensions = previous.Extensions

@@ -453,12 +453,15 @@ func (m *DepsManager) fixCurlPkgConfig(depsDir string) error {
 
 // GetBuildEnv returns environment variables for building PHP with dependencies.
 func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
+	return m.buildEnv(phpVersion, GetRequiredDeps(phpVersion))
+}
+
+func (m *DepsManager) buildEnv(phpVersion string, deps []Dependency) []string {
 	var err error
 	phpVersion, err = m.paths.CheckVersionPath(phpVersion)
 	if err != nil {
 		return nil
 	}
-	deps := GetRequiredDeps(phpVersion)
 	if len(deps) == 0 {
 		return nil
 	}
@@ -485,16 +488,16 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 
 		libDir := filepath.Join(prefix, "lib")
 		if fsutil.Exists(libDir) {
-			ldflags = append(ldflags, "-L"+libDir)
+			ldflags = append(ldflags, quoteBuildFlag("-L"+libDir))
 		}
 		libDir64 := filepath.Join(prefix, "lib64")
 		if fsutil.Exists(libDir64) {
-			ldflags = append(ldflags, "-L"+libDir64)
+			ldflags = append(ldflags, quoteBuildFlag("-L"+libDir64))
 		}
 
 		includeDir := filepath.Join(prefix, "include")
 		if fsutil.Exists(includeDir) {
-			cflags = append(cflags, "-I"+includeDir)
+			cflags = append(cflags, quoteBuildFlag("-I"+includeDir))
 		}
 
 		// Add explicit static library paths for OpenSSL
@@ -512,7 +515,7 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 			}
 			includeDir := filepath.Join(prefix, "include")
 			if fsutil.Exists(includeDir) {
-				opensslCflags = append(opensslCflags, "-I"+includeDir)
+				opensslCflags = append(opensslCflags, quoteBuildFlag("-I"+includeDir))
 			}
 		}
 
@@ -539,8 +542,8 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 
 			if fsutil.Exists(libcurl) {
 				// Override pkg-config to control link order for static libcurl.
-				curlCflags := fmt.Sprintf("-I%s/include -DCURL_STATICLIB", prefix)
-				curlLibs := fmt.Sprintf("-L%s -lcurl", curlLibDir)
+				curlCflags := quoteBuildFlag("-I"+filepath.Join(prefix, "include")) + " -DCURL_STATICLIB"
+				curlLibs := quoteBuildFlag("-L"+curlLibDir) + " -lcurl"
 				env = append(env, "CURL_CFLAGS="+curlCflags)
 				env = append(env, "CURL_LIBS="+curlLibs)
 			}
@@ -585,6 +588,9 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 	}
 
 	if len(libs) > 0 {
+		for n, value := range libs {
+			libs[n] = quoteBuildFlag(value)
+		}
 		libsStr := strings.Join(libs, " ")
 		env = append(env, "OPENSSL_LIBS="+libsStr)
 		// Also add to LIBS so linker tests include OpenSSL
@@ -605,6 +611,13 @@ func (m *DepsManager) GetBuildEnv(phpVersion string) []string {
 	}
 
 	return env
+}
+
+func quoteBuildFlag(value string) string {
+	if !strings.ContainsAny(value, " \t'\"\\$`") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // GetConfigureFlags returns additional configure flags for PHP with dependencies.

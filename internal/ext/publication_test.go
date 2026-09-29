@@ -52,7 +52,7 @@ func writeHTTPArchive(t *testing.T, p *core.Paths, module string) {
 	for name, data := range map[string]string{
 		"package.xml":               `<package><name>pecl_http</name><providesextension>` + module + `</providesextension></package>`,
 		"pecl_http-4.3.0/config.m4": "fixture",
-		"pecl_http-4.3.0/configure": "#!/bin/sh\nexit 0\n",
+		"pecl_http-4.3.0/configure": "#!/bin/sh\nif [ \"$1\" = --help ]; then echo '--with-greeting --with-php-config'; fi\nexit 0\n",
 	} {
 		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(data))}); err != nil {
 			t.Fatal(err)

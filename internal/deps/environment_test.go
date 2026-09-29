@@ -81,3 +81,27 @@ func TestDependencyBuildPreservesEnvironmentFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestPrivateDependencyFlagsKeepSpacesInPrefix(t *testing.T) {
+	p := core.NewPaths(filepath.Join(t.TempDir(), "root with space"))
+	for _, part := range []string{"include", "lib"} {
+		if err := os.MkdirAll(filepath.Join(p.Root, "deps", "7.4.33", "openssl", part), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := toolchain.Current(NewDepsManager(p, nil, 1).GetBuildEnv("7.4.33")...)
+	args, err := toolchain.SplitArguments(env.Value("CPPFLAGS", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-I" + filepath.Join(p.Root, "deps", "7.4.33", "openssl", "include")
+	found := false
+	for _, arg := range args {
+		if arg == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("private prefix split into arguments: %q want %q", args, want)
+	}
+}

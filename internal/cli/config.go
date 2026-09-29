@@ -2,17 +2,20 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/hightemp/phvm/internal/build"
+	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/redact"
 )
 
 var fileConfig, effectiveConfig *core.Config
+
+var configureBaseFlags, configureCLIFlags []string
 
 var configCmd = &cobra.Command{Use: "config", Short: "Inspect and validate phvm configuration"}
 var configShowCmd = &cobra.Command{
@@ -50,10 +53,12 @@ func init() {
 		cmd.Flags().String("profile", "common", "Default PHP build profile")
 		cmd.Flags().Int("jobs", 0, "Parallel build jobs (0: automatic)")
 		cmd.Flags().String("configure", "", "Additional PHP configure arguments")
+		cmd.Flags().StringArray("configure-flag", nil, "One exact configure argument (repeatable; overrides --configure)")
 	}
 }
 
 func loadCommandConfig(cmd *cobra.Command) error {
+	configureBaseFlags, configureCLIFlags = nil, nil
 	var err error
 	fileConfig, err = core.NewConfigManager(GetPaths()).Load()
 	if err != nil {
@@ -67,6 +72,7 @@ func loadCommandConfig(cmd *cobra.Command) error {
 	if err := effectiveConfig.ApplyEnvironment(); err != nil {
 		return err
 	}
+	configureBaseFlags = append([]string{}, effectiveConfig.Build.DefaultFlags...)
 	return applyConfigFlags(cmd, effectiveConfig)
 }
 
@@ -122,12 +128,26 @@ func applyConfigFlags(cmd *cobra.Command, cfg *core.Config) error {
 		}
 		cfg.Verify.GPG = !value
 	}
-	if cmd.Flags().Changed("configure") && (cmd == installCmd || cmd == doctorCmd || cmd == configShowCmd || cmd == configValidateCmd) {
-		value, err := cmd.Flags().GetString("configure")
+	if cmd == installCmd || cmd == doctorCmd || cmd == configShowCmd || cmd == configValidateCmd || cmd == extInstallCmd {
+		legacy, _ := cmd.Flags().GetString("configure")
+		parsed, err := configure.Parse(legacy)
 		if err != nil {
 			return err
 		}
-		cfg.Build.DefaultFlags = build.MergeFlags(&build.Profile{Flags: cfg.Build.DefaultFlags}, strings.Fields(value))
+		var repeated []string
+		if flag := cmd.Flags().Lookup("configure-flag"); flag != nil {
+			repeated = flag.Value.(pflag.SliceValue).GetSlice()
+		}
+		if err := configure.Validate(repeated); err != nil {
+			return err
+		}
+		configureCLIFlags = configure.Merge(parsed, repeated)
+		if err := configure.ValidateManaged(configureCLIFlags, cmd == extInstallCmd); err != nil {
+			return err
+		}
+		if cmd != extInstallCmd {
+			cfg.Build.DefaultFlags = build.MergeFlags(&build.Profile{Flags: cfg.Build.DefaultFlags}, configureCLIFlags)
+		}
 	}
 	return cfg.Validate()
 }

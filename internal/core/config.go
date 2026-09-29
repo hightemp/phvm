@@ -12,6 +12,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/redact"
 )
@@ -133,6 +134,9 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(flag) == "" || strings.ContainsAny(flag, "\r\n\x00") {
 			return fmt.Errorf("build.default_flags must contain nonempty single-line arguments")
 		}
+	}
+	if err := configure.ValidateManaged(c.Build.DefaultFlags, false); err != nil {
+		return fmt.Errorf("build.default_flags: %w", err)
 	}
 	return nil
 }

@@ -125,7 +125,6 @@ Examples:
 
 		phpVersion, _ := cmd.Flags().GetString("php")
 		extVersion, _ := cmd.Flags().GetString("version")
-		configure, _ := cmd.Flags().GetString("configure")
 		jobs := effectiveConfig.General.ParallelJobs
 
 		var resolveErr error
@@ -138,10 +137,7 @@ Examples:
 		client := getClient(paths)
 		installer := ext.NewInstaller(paths, client)
 
-		var customFlags []string
-		if configure != "" {
-			customFlags = []string{configure}
-		}
+		customFlags := append([]string{}, configureCLIFlags...)
 
 		opts := ext.InstallOptions{
 			Name:        extName,
@@ -252,5 +248,6 @@ func init() {
 
 	extInstallCmd.Flags().String("version", "", "Extension version (default: latest)")
 	extInstallCmd.Flags().String("configure", "", "Additional configure flags")
+	extInstallCmd.Flags().StringArray("configure-flag", nil, "One exact extension configure argument (repeatable; overrides --configure)")
 	extInstallCmd.Flags().Int("jobs", 0, "Number of parallel build jobs (0: extension builder default)")
 }

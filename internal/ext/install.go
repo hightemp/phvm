@@ -10,19 +10,24 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/fsutil"
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/remote"
+	"github.com/hightemp/phvm/internal/toolchain"
 )
 
 // Installer installs PHP extensions from PECL.
 type Installer struct {
-	paths     *core.Paths
-	client    *remote.Client
-	peclAPI   *remote.PECLAPI
-	jobs      int
-	logWriter io.Writer
+	paths             *core.Paths
+	client            *remote.Client
+	peclAPI           *remote.PECLAPI
+	jobs              int
+	logWriter         io.Writer
+	actualFlags       []string
+	actualEnvironment map[string]string
+	buildEnvironment  toolchain.Environment
 }
 
 // NewInstaller creates a new Installer.
@@ -62,6 +67,10 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 }
 
 func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
+	if err := configure.ValidateManaged(opts.CustomFlags, true); err != nil {
+		return err
+	}
+	i.buildEnvironment = extensionBuildEnvironment(opts.CustomFlags)
 	if err := fsutil.ValidateName(opts.Name); err != nil {
 		return err
 	}
@@ -170,7 +179,7 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	log.Info("Validating and publishing extension...")
-	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL); err != nil {
+	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL, configurationRecord{Flags: i.actualFlags, Environment: i.actualEnvironment}); err != nil {
 		return fmt.Errorf("publish extension: %w", err)
 	}
 
@@ -213,6 +222,7 @@ func (i *Installer) findSourceDir(buildDir string) (string, error) {
 func (i *Installer) runPhpize(ctx context.Context, srcDir, phpize string) error {
 	cmd := exec.CommandContext(ctx, phpize)
 	cmd.Dir = srcDir
+	cmd.Env = []string(i.buildEnvironment)
 	if i.logWriter != nil {
 		cmd.Stdout = i.logWriter
 		cmd.Stderr = i.logWriter
@@ -222,11 +232,21 @@ func (i *Installer) runPhpize(ctx context.Context, srcDir, phpize string) error 
 
 // runConfigure runs ./configure.
 func (i *Installer) runConfigure(ctx context.Context, srcDir, phpConfig string, customFlags []string) error {
-	args := []string{"--with-php-config=" + phpConfig}
-	args = append(args, customFlags...)
+	if err := configure.ValidateManaged(customFlags, true); err != nil {
+		return err
+	}
+	args := append(configure.Merge(customFlags), "--with-php-config="+phpConfig)
+	env := extensionBuildEnvironment(customFlags)
+	i.buildEnvironment = env
+	if err := configure.CheckSupported(ctx, filepath.Join(srcDir, "configure"), srcDir, env, customFlags); err != nil {
+		return err
+	}
 
 	cmd := exec.CommandContext(ctx, "./configure", args...)
 	cmd.Dir = srcDir
+	cmd.Env = []string(env)
+	i.actualFlags = append([]string{}, args...)
+	i.actualEnvironment = configure.RecordEnvironment(env)
 	if i.logWriter != nil {
 		cmd.Stdout = i.logWriter
 		cmd.Stderr = i.logWriter
@@ -238,11 +258,22 @@ func (i *Installer) runConfigure(ctx context.Context, srcDir, phpConfig string, 
 func (i *Installer) runMake(ctx context.Context, srcDir string) error {
 	cmd := exec.CommandContext(ctx, "make", fmt.Sprintf("-j%d", i.jobs))
 	cmd.Dir = srcDir
+	cmd.Env = []string(i.buildEnvironment)
 	if i.logWriter != nil {
 		cmd.Stdout = i.logWriter
 		cmd.Stderr = i.logWriter
 	}
 	return cmd.Run()
+}
+
+func extensionBuildEnvironment(flags []string) toolchain.Environment {
+	var overrides []string
+	for _, arg := range configure.Merge(flags) {
+		if !strings.HasPrefix(arg, "--") {
+			overrides = append(overrides, arg)
+		}
+	}
+	return toolchain.Current(overrides...)
 }
 
 // getExtensionDir gets the extension directory from php-config.

@@ -297,7 +297,7 @@ When installing PHP, you can choose a build profile:
 
 - **minimal** - Core PHP only, smallest footprint
 - **common** - Common extensions (curl, json, mbstring, openssl, etc.)
-- **full** - All available extensions
+- **full** - A broader set of bundled extensions
 
 ```bash
 # Install with minimal profile
@@ -306,6 +306,42 @@ phvm install 8.3 --profile minimal
 # Install with full profile
 phvm install 8.3 --profile full
 ```
+
+Unknown profile names are errors. Built-in profile flags are adapted to the PHP
+version; explicit flags using an obsolete spelling are rejected with an error.
+
+### Configure arguments
+
+Use repeatable `--configure-flag` for one exact argument per option. Commas,
+spaces and shell-looking text inside its value are retained as data:
+
+```bash
+phvm install 8.3 --configure-flag=--without-curl --configure-flag=--without-openssl
+phvm ext install redis --configure-flag=--enable-redis
+phvm doctor --php 8.3 --profile common --configure-flag=--without-curl
+phvm config show --effective --configure-flag='CFLAGS=-O0 -g'
+```
+
+Legacy `--configure` accepts a quoted argument string, for example
+`--configure='--with-sdk="/path with space" --without-curl'`. Phvm parses quotes
+and escapes without invoking a shell. `$HOME`, backticks and `$()` are not
+expanded. Use `--name=value` for an option value; empty arguments, dangling
+words and unfinished quotes are errors. If both forms are used, repeatable
+flags override the legacy string. The last occurrence of the same option wins.
+
+PHP flag priority is **dependency defaults → profile → config/env → explicit
+CLI**. A bare enabled library option uses its private dependency prefix when
+needed by old PHP. Explicit disabling or a supplied prefix takes priority.
+`minimal` does not implicitly enable OpenSSL/cURL. cURL can still require
+OpenSSL as a build dependency while PHP's OpenSSL extension is disabled.
+An explicit external OpenSSL prefix combined with private cURL is rejected;
+also choose a cURL prefix or disable cURL in that case.
+
+PHP and PECL installation check explicit options against the selected source's
+`configure --help`. `doctor` applies the same PHP flag plan and known version
+rules without downloading source. Managed install/ini paths, the selected PECL
+php-config and PHP CLI cannot be overridden. Metadata stores the actual argv
+and selected build environment passed to configure for PHP and extensions.
 
 ## php.ini Profiles
 
@@ -393,11 +429,11 @@ nested schema above. There is no silent fallback for a broken configuration.
 | `verify.sha256` | None | Must be `true`; SHA256 is mandatory |
 | `verify.gpg` | `--gpg`, `install --skip-gpg` | Boolean; PHP signature verification |
 | `verify.gpg_fallback_sha256` | `--gpg-fallback-sha256` | Boolean; permit unavailable GPG verification only after successful SHA256 |
-| `build.default_flags` | `install --configure`, `doctor --configure` | Array of nonempty, single-line PHP configure arguments |
+| `build.default_flags` | `install/doctor --configure-flag`, legacy `--configure` | Array of complete, single-line PHP configure arguments |
 
 Environment variables are listed below. `PHVM_CONFIGURE_FLAGS` replaces the
-TOML flags array; explicit `--configure` arguments are merged over it, replacing
-conflicting options. Profile flags are the base for the PHP build. These settings
+TOML flags array; explicit `--configure`/`--configure-flag` arguments are merged
+over it, replacing conflicting options. These settings
 do not supply configure arguments to PECL extensions.
 
 ```bash
@@ -411,7 +447,8 @@ phvm install 8.3 --skip-gpg
 
 `config show` prints defaults plus file settings without environment/CLI
 overrides; `--effective` includes them. `config show --effective` and
-`config validate` accept `--profile`, `--jobs` and `--configure` to inspect PHP
+`config validate` accept `--profile`, `--jobs`, `--configure-flag` and legacy
+`--configure` to inspect PHP
 installation overrides. Displayed URL credentials are redacted.
 
 `--skip-gpg` disables only GPG; SHA256 remains mandatory. `--skip-verify` is a

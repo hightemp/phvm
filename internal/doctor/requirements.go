@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hightemp/phvm/internal/build"
+	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/deps"
 	"github.com/hightemp/phvm/internal/redact"
@@ -22,6 +23,7 @@ type Options struct {
 	PHPVersion  string
 	Profile     string
 	CustomFlags []string
+	ConfigFlags []string
 	Paths       *core.Paths
 	GPGRequired bool
 }
@@ -55,9 +57,15 @@ func CheckFor(ctx context.Context, opts Options) (*DoctorResult, error) {
 		version.Patch = 0
 	}
 	builder := build.NewBuilder(opts.Paths, nil)
-	builder.SetProfile(opts.Profile)
+	if err := builder.SetProfile(opts.Profile); err != nil {
+		return nil, err
+	}
+	builder.SetConfigFlags(opts.ConfigFlags)
 	builder.SetCustomFlags(opts.CustomFlags)
-	flags := builder.ConfigureFlags(version.Full())
+	flags, err := builder.ResolvedConfigureFlags(version.Full())
+	if err != nil {
+		return nil, err
+	}
 	env := builder.Environment(version.Full())
 	probes := requiredLibraries(version, flags)
 	needsPkgConfig := false
@@ -82,7 +90,8 @@ func CheckFor(ctx context.Context, opts Options) (*DoctorResult, error) {
 	}
 	for _, probe := range probes {
 		deferred := false
-		for _, dep := range deps.GetRequiredDeps(version.Full()) {
+		selected, _ := deps.NewDepsManager(opts.Paths, nil, 1).Selected(version.Full(), flags)
+		for _, dep := range selected {
 			if dep.Name != "openssl" && dep.Name != "curl" {
 				continue
 			}
@@ -230,15 +239,7 @@ func needsPackage(check CheckResult) bool {
 }
 
 func optionEnabled(flags []string, option string, fallback bool) bool {
-	for _, flag := range flags {
-		for _, prefix := range []string{"--with-", "--without-", "--enable-", "--disable-"} {
-			name, value, _ := strings.Cut(strings.TrimPrefix(flag, prefix), "=")
-			if strings.HasPrefix(flag, prefix) && name == option {
-				fallback = (prefix == "--with-" || prefix == "--enable-") && value != "no"
-			}
-		}
-	}
-	return fallback
+	return configure.Enabled(flags, option, fallback)
 }
 
 // Version floors follow PHP's configure macros; see README sources.

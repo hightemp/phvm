@@ -21,5 +21,5 @@ func phpConfigureFixture(prefix, version, capture string) string {
 	}
 	bin := quote("$(INSTALL_ROOT)" + filepath.Join(prefix, "bin"))
 	header := quote("$(INSTALL_ROOT)" + filepath.Join(prefix, "include/php/Zend"))
-	return fmt.Sprintf("#!/bin/sh\ncat > Makefile <<'EOF'\nall:\n\t%s\ninstall:\n\tmkdir -p %s %s\n\tprintf '%%b' %s > %s/php\n\tprintf '%%b' %s > %s/php-config\n\tprintf '#!/bin/sh\\nexit 0\\n' > %s/phpize\n\tprintf '#define ZEND_MODULE_API_NO 20230831\\n' > %s/zend_modules.h\n\tchmod 755 %s/php %s/php-config %s/phpize\nEOF\n", all, bin, header, quote(php), bin, quote(config), bin, bin, header, bin, bin, bin)
+	return fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = --help ]; then echo '--with-pear --with-curl --with-zlib --with-sdk'; exit 0; fi\ncat > Makefile <<'EOF'\nall:\n\t%s\ninstall:\n\tmkdir -p %s %s\n\tprintf '%%b' %s > %s/php\n\tprintf '%%b' %s > %s/php-config\n\tprintf '#!/bin/sh\\nexit 0\\n' > %s/phpize\n\tprintf '#define ZEND_MODULE_API_NO 20230831\\n' > %s/zend_modules.h\n\tchmod 755 %s/php %s/php-config %s/phpize\nEOF\n", all, bin, header, quote(php), bin, quote(config), bin, bin, header, bin, bin, bin)
 }

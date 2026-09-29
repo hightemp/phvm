@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/deps"
 	"github.com/hightemp/phvm/internal/fsutil"
@@ -23,13 +24,17 @@ import (
 
 // Builder builds PHP from source.
 type Builder struct {
-	paths       *core.Paths
-	client      *remote.Client
-	jobs        int
-	profile     *Profile
-	customFlags []string
-	logWriter   io.Writer
-	depsManager *deps.DepsManager
+	paths             *core.Paths
+	client            *remote.Client
+	jobs              int
+	profile           *Profile
+	customFlags       []string
+	configFlags       []string
+	profileErr        error
+	actualFlags       []string
+	actualEnvironment map[string]string
+	logWriter         io.Writer
+	depsManager       *deps.DepsManager
 }
 
 // NewBuilder creates a new Builder.
@@ -59,14 +64,22 @@ func (b *Builder) SetJobs(jobs int) {
 }
 
 // SetProfile sets the build profile.
-func (b *Builder) SetProfile(name string) {
+func (b *Builder) SetProfile(name string) error {
 	b.profile = GetProfile(name)
+	b.profileErr = nil
+	if b.profile == nil {
+		b.profileErr = fmt.Errorf("unknown build profile %q; use minimal, common or full", name)
+	}
+	return b.profileErr
 }
 
 // SetCustomFlags sets custom configure flags.
 func (b *Builder) SetCustomFlags(flags []string) {
-	b.customFlags = flags
+	b.customFlags = append([]string{}, flags...)
 }
+
+// SetConfigFlags sets defaults below explicit configure arguments.
+func (b *Builder) SetConfigFlags(flags []string) { b.configFlags = append([]string{}, flags...) }
 
 // SetLogWriter sets the log writer for build output.
 func (b *Builder) SetLogWriter(w io.Writer) {
@@ -81,6 +94,7 @@ type BuildOptions struct {
 	TarballPath  string
 	Profile      string
 	CustomFlags  []string
+	ConfigFlags  []string
 	Jobs         int
 	SkipVerify   bool
 	SourceURL    string
@@ -105,10 +119,15 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 
 	// Set options
 	if opts.Profile != "" {
-		b.SetProfile(opts.Profile)
+		if err := b.SetProfile(opts.Profile); err != nil {
+			return err
+		}
 	}
-	if len(opts.CustomFlags) > 0 {
-		b.SetCustomFlags(opts.CustomFlags)
+	b.SetCustomFlags(opts.CustomFlags)
+	b.SetConfigFlags(opts.ConfigFlags)
+	flags, err := b.ResolvedConfigureFlags(version)
+	if err != nil {
+		return err
 	}
 	if opts.Jobs > 0 {
 		b.SetJobs(opts.Jobs)
@@ -118,7 +137,7 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	// Build dependencies if needed
 	if deps.NeedsDeps(version) {
 		log.Info("Building required dependencies for PHP %s...", version)
-		if err := b.depsManager.EnsureDeps(ctx, version); err != nil {
+		if err := b.depsManager.EnsureSelected(ctx, version, flags); err != nil {
 			return fmt.Errorf("build dependencies: %w", err)
 		}
 	}
@@ -262,40 +281,83 @@ func (b *Builder) extract(ctx context.Context, tarballPath, sourceDir string) er
 
 // ConfigureFlags returns the same merged options used by configure and doctor.
 func (b *Builder) ConfigureFlags(version string) []string {
-	flags := MergeFlags(b.profile, b.customFlags)
-	if deps.NeedsDeps(version) {
-		depsFlags := b.depsManager.GetConfigureFlags(version)
-		if len(depsFlags) > 0 {
-			log.Debug("Adding dependency flags: %v", depsFlags)
-			flags = MergeFlags(&Profile{Flags: flags}, depsFlags)
+	flags, _ := b.ResolvedConfigureFlags(version)
+	return flags
+}
+
+// ResolvedConfigureFlags applies profile, config and explicit options with private defaults.
+func (b *Builder) ResolvedConfigureFlags(version string) ([]string, error) {
+	if b.profileErr != nil {
+		return nil, b.profileErr
+	}
+	if b.profile == nil {
+		return nil, fmt.Errorf("build profile is not set")
+	}
+	if err := configure.ValidateManaged(append(append([]string{}, b.configFlags...), b.customFlags...), false); err != nil {
+		return nil, err
+	}
+	profile := profileFlagsForVersion(b.profile, version)
+	if err := validateFlagsForVersion(append(append([]string{}, b.configFlags...), b.customFlags...), version); err != nil {
+		return nil, err
+	}
+	flags := configure.Merge(profile, b.configFlags, b.customFlags)
+	if deps.NeedsDeps(version) && b.depsManager != nil {
+		selected, err := b.depsManager.Selected(version, flags)
+		if err != nil {
+			return nil, err
+		}
+		for _, dep := range selected {
+			for n, flag := range flags {
+				switch flag {
+				case "--with-" + dep.Name, "--with-" + dep.Name + "=yes":
+					flags[n] = "--with-" + dep.Name + "=" + filepath.Join(b.depsManager.DepsDir(version), dep.Name)
+				case "--with-" + dep.Name + "=shared":
+					flags[n] = "--with-" + dep.Name + "=shared," + filepath.Join(b.depsManager.DepsDir(version), dep.Name)
+				}
+			}
 		}
 	}
-	return flags
+	return flags, nil
 }
 
 // Environment snapshots configure's environment, including private dependencies.
 func (b *Builder) Environment(version string) toolchain.Environment {
-	if deps.NeedsDeps(version) {
-		return toolchain.Current(b.depsManager.GetBuildEnv(version)...)
+	flags := b.ConfigureFlags(version)
+	var overrides []string
+	if deps.NeedsDeps(version) && b.depsManager != nil {
+		overrides = b.depsManager.GetSelectedBuildEnv(version, flags)
 	}
-	return toolchain.Current()
+	for _, arg := range flags {
+		if !strings.HasPrefix(arg, "--") {
+			overrides = append(overrides, arg)
+		}
+	}
+	return toolchain.Current(overrides...)
 }
 
 // configure runs ./configure with the appropriate flags.
 func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, installDir string) error {
 	log.Info("Configuring...")
+	if _, err := b.ResolvedConfigureFlags(version); err != nil {
+		return err
+	}
 	flags := b.configureArguments(version, installDir)
 
 	log.Debug("Configure flags: %v", flags)
 
 	// Run configure from build directory
 	configurePath := filepath.Join(sourceDir, "configure")
+	env := b.Environment(version)
+	if err := configure.CheckSupported(ctx, configurePath, buildDir, env, explicitConfigureArguments(b.configFlags, b.customFlags)); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, configurePath, flags...)
 	cmd.Dir = buildDir
 
 	// Set environment with dependency paths
-	env := b.Environment(version)
 	cmd.Env = []string(env)
+	b.actualFlags = append([]string{}, flags...)
+	b.actualEnvironment = configure.RecordEnvironment(env)
 
 	var tail configureOutputTail
 	var output io.Writer = &tail
@@ -511,7 +573,8 @@ func (b *Builder) saveMetadata(version, sourceURL, sha256 string, verification *
 	metadata.GPGSkipped = verification.GPGSkipped
 	metadata.GPGSkipReason = verification.GPGSkipReason
 	metadata.GPGFingerprint = verification.GPGFingerprint
-	metadata.ConfigureFlags = MergeFlags(b.profile, b.customFlags)
+	metadata.ConfigureFlags = append([]string{}, b.actualFlags...)
+	metadata.BuildEnvironment = b.actualEnvironment
 	metadata.BuildProfile = b.profile.Name
 	metadata.BuildDuration = int64(duration.Seconds())
 

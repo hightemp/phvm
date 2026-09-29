@@ -59,7 +59,7 @@ func TestInstallAppliesConfiguration(t *testing.T) {
 			prefix := p.VersionDir("8.5.11")
 			php := filepath.Join(p.VersionBin("8.5.11"), core.PHPBinary())
 			capture := filepath.Join(p.Root, "makeflags")
-			script := fmt.Sprintf("#!/bin/sh\ncat > Makefile <<'EOF'\nall:\n\t@printf '%%s' '$(MAKEFLAGS)' > '%s'\ninstall:\n\tmkdir -p '%s'\n\tprintf '#!/bin/sh\\necho PHP 8.5.11\\n' > '%s'\n\tchmod 755 '%s'\nEOF\n", capture, filepath.Dir(php), php, php)
+			script := phpConfigureFixture(p.VersionDir("8.5.11"), "8.5.11", capture)
 			var archive bytes.Buffer
 			gz := gzip.NewWriter(&archive)
 			tw := tar.NewWriter(gz)

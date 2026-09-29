@@ -77,12 +77,15 @@ func (b *Builder) SetLogWriter(w io.Writer) {
 //
 //nolint:revive // BuildOptions is more descriptive than just Options
 type BuildOptions struct {
-	Version     string
-	TarballPath string
-	Profile     string
-	CustomFlags []string
-	Jobs        int
-	SkipVerify  bool
+	Version      string
+	TarballPath  string
+	Profile      string
+	CustomFlags  []string
+	Jobs         int
+	SkipVerify   bool
+	SourceURL    string
+	SHA256       string
+	Verification *remote.VerifyResult
 }
 
 // Build builds PHP from source.
@@ -124,6 +127,15 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	sourceDir := b.paths.SourcePath(version)
 	buildDir := b.paths.BuildPath(version)
 	installDir := b.paths.VersionDir(version)
+	installDir, err = filepath.Abs(installDir)
+	if err != nil {
+		return err
+	}
+	tx, err := newPHPTransaction(b.paths, version, installDir)
+	if err != nil {
+		return err
+	}
+	defer tx.close()
 
 	// Extract source
 	if err := b.extract(ctx, opts.TarballPath, sourceDir); err != nil {
@@ -151,13 +163,36 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// Install
-	if err := b.install(ctx, version, buildDir, installDir); err != nil {
+	if err := b.install(ctx, version, buildDir, tx.installRoot); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}
 
 	// Post-install setup
-	if err := b.postInstall(ctx, version, installDir); err != nil {
+	if err := b.postInstall(ctx, version, tx.candidate); err != nil {
 		return fmt.Errorf("post-install: %w", err)
+	}
+	if err := tx.preservePrevious(); err != nil {
+		return fmt.Errorf("preserve previous installation: %w", err)
+	}
+	metadata, err := b.candidateMetadata(opts, time.Since(startTime), tx.previousMetadata)
+	if err != nil {
+		return err
+	}
+	metadata.InstallationState = "staging"
+	if err := tx.writeMetadata(metadata); err != nil {
+		return err
+	}
+	identity, err := validatePHPInstallation(ctx, tx.candidate, installDir, version)
+	if err != nil {
+		return fmt.Errorf("validate staged PHP: %w", err)
+	}
+	metadata.InstallationState = "ready"
+	metadata.PHPAPI, metadata.ZTS, metadata.Debug = identity.API, identity.ZTS, identity.Debug
+	if err := tx.writeMetadata(metadata); err != nil {
+		return err
+	}
+	if err := tx.publish(ctx, func() error { _, err := validatePHPInstallation(ctx, installDir, installDir, version); return err }); err != nil {
+		return err
 	}
 
 	// Cleanup build directory
@@ -249,18 +284,7 @@ func (b *Builder) Environment(version string) toolchain.Environment {
 // configure runs ./configure with the appropriate flags.
 func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, installDir string) error {
 	log.Info("Configuring...")
-	flags := b.ConfigureFlags(version)
-
-	// Add prefix
-	flags = append([]string{"--prefix=" + installDir}, flags...)
-
-	// Add config file paths
-	etcDir := filepath.Join(installDir, "etc")
-	confDDir := filepath.Join(etcDir, "conf.d")
-	flags = append(flags,
-		"--with-config-file-path="+etcDir,
-		"--with-config-file-scan-dir="+confDDir,
-	)
+	flags := b.configureArguments(version, installDir)
 
 	log.Debug("Configure flags: %v", flags)
 
@@ -300,6 +324,14 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	}
 
 	return nil
+}
+
+func (b *Builder) configureArguments(version, installDir string) []string {
+	if absolute, err := filepath.Abs(installDir); err == nil {
+		installDir = absolute
+	}
+	flags := b.ConfigureFlags(version)
+	return append(flags, "--prefix="+installDir, "--with-config-file-path="+filepath.Join(installDir, "etc"), "--with-config-file-scan-dir="+filepath.Join(installDir, "etc", "conf.d"))
 }
 
 // configureOutputTail retains bounded output while the full log is streamed.
@@ -371,7 +403,7 @@ func (b *Builder) install(ctx context.Context, version, buildDir, installDir str
 		return fmt.Errorf("create install directory: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "make", "install")
+	cmd := exec.CommandContext(ctx, "make", "install", "INSTALL_ROOT="+installDir, "DESTDIR="+installDir)
 	cmd.Dir = buildDir
 	cmd.Env = []string(b.Environment(version))
 
@@ -392,6 +424,9 @@ func (b *Builder) install(ctx context.Context, version, buildDir, installDir str
 
 // postInstall performs post-installation setup.
 func (b *Builder) postInstall(ctx context.Context, version, installDir string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	log.Debug("Running post-install setup...")
 
 	etcDir := filepath.Join(installDir, "etc")
@@ -413,7 +448,7 @@ func (b *Builder) postInstall(ctx context.Context, version, installDir string) e
 		prodIni := filepath.Join(sourceIni, "php.ini-production")
 		if fsutil.Exists(prodIni) {
 			if err := fsutil.AtomicCopyFile(prodIni, iniPath, 0644); err != nil {
-				log.Warn("Failed to copy php.ini-production: %v", err)
+				return fmt.Errorf("copy php.ini-production: %w", err)
 			}
 		} else {
 			// Create minimal php.ini
@@ -435,7 +470,7 @@ opcache.enable=1
 opcache.enable_cli=0
 `
 			if err := fsutil.AtomicWriteFile(iniPath, []byte(minimalIni), 0644); err != nil {
-				log.Warn("Failed to create php.ini: %v", err)
+				return fmt.Errorf("create php.ini: %w", err)
 			}
 		}
 	}
@@ -445,15 +480,6 @@ opcache.enable_cli=0
 	if !fsutil.Exists(phpBin) {
 		return fmt.Errorf("php binary not found after install")
 	}
-
-	// Test php binary
-	cmd := exec.CommandContext(ctx, phpBin, "--version")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("php binary test failed: %w\nOutput: %s", err, string(output))
-	}
-
-	log.Debug("PHP binary test: %s", strings.TrimSpace(string(output)))
 
 	return nil
 }
@@ -494,6 +520,18 @@ func (b *Builder) saveMetadata(version, sourceURL, sha256 string, verification *
 		return err
 	}
 	defer root.Close()
+	previousData, err := root.ReadFile(".phvm-metadata.json")
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
+		var previous core.Metadata
+		if err := json.Unmarshal(previousData, &previous); err != nil {
+			return err
+		}
+		metadata.InstallationState, metadata.InstallationID, metadata.PHPAPI = previous.InstallationState, previous.InstallationID, previous.PHPAPI
+		metadata.ZTS, metadata.Debug, metadata.Extensions = previous.ZTS, previous.Debug, previous.Extensions
+	}
 	data, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return err

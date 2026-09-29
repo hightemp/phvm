@@ -11,19 +11,24 @@ import (
 
 // Metadata holds build and installation metadata for a PHP version.
 type Metadata struct {
-	Version        string                 `json:"version"`
-	InstalledAt    time.Time              `json:"installed_at"`
-	SourceURL      string                 `json:"source_url"`
-	SHA256         string                 `json:"sha256"`
-	GPGVerified    bool                   `json:"gpg_verified"`
-	SHA256Verified bool                   `json:"sha256_verified"`
-	GPGSkipped     bool                   `json:"gpg_skipped"`
-	GPGSkipReason  string                 `json:"gpg_skip_reason,omitempty"`
-	GPGFingerprint string                 `json:"gpg_fingerprint,omitempty"`
-	ConfigureFlags []string               `json:"configure_flags"`
-	BuildProfile   string                 `json:"build_profile"`
-	BuildDuration  int64                  `json:"build_duration_seconds"`
-	Extensions     map[string]ExtMetadata `json:"extensions,omitempty"`
+	InstallationState string                 `json:"installation_state,omitempty"`
+	InstallationID    string                 `json:"installation_id,omitempty"`
+	PHPAPI            string                 `json:"php_api,omitempty"`
+	ZTS               bool                   `json:"zts,omitempty"`
+	Debug             bool                   `json:"debug,omitempty"`
+	Version           string                 `json:"version"`
+	InstalledAt       time.Time              `json:"installed_at"`
+	SourceURL         string                 `json:"source_url"`
+	SHA256            string                 `json:"sha256"`
+	GPGVerified       bool                   `json:"gpg_verified"`
+	SHA256Verified    bool                   `json:"sha256_verified"`
+	GPGSkipped        bool                   `json:"gpg_skipped"`
+	GPGSkipReason     string                 `json:"gpg_skip_reason,omitempty"`
+	GPGFingerprint    string                 `json:"gpg_fingerprint,omitempty"`
+	ConfigureFlags    []string               `json:"configure_flags"`
+	BuildProfile      string                 `json:"build_profile"`
+	BuildDuration     int64                  `json:"build_duration_seconds"`
+	Extensions        map[string]ExtMetadata `json:"extensions,omitempty"`
 }
 
 // ExtMetadata holds metadata for an installed extension.

@@ -34,8 +34,7 @@ func TestInstallMetadataRecordsDisabledGPG(t *testing.T) {
 	if err := os.WriteFile(p.ConfigFile(), []byte("[verify]\ngpg=false\ngpg_fallback_sha256=false\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	php := filepath.Join(p.VersionBin("8.5.11"), core.PHPBinary())
-	script := fmt.Sprintf("#!/bin/sh\ncat > Makefile <<'EOF'\nall:\n\t@true\ninstall:\n\tmkdir -p '%s'\n\tprintf '#!/bin/sh\\necho PHP 8.5.11\\n' > '%s'\n\tchmod 755 '%s'\nEOF\n", filepath.Dir(php), php, php)
+	script := phpConfigureFixture(p.VersionDir("8.5.11"), "8.5.11", "")
 	var archive bytes.Buffer
 	gz := gzip.NewWriter(&archive)
 	tw := tar.NewWriter(gz)

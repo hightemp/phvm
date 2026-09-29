@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -133,7 +132,6 @@ func runInstall(cmd *cobra.Command, args []string) {
 	}
 
 	// Download and verify
-	startTime := time.Now()
 	verifier := getVerifier(paths, client)
 
 	tarballPath, verification, err := verifier.DownloadAndVerify(ctx, tarball, api.KeyringURL())
@@ -161,23 +159,20 @@ func runInstall(cmd *cobra.Command, args []string) {
 	}
 
 	buildOpts := build.BuildOptions{
-		Version:     version,
-		TarballPath: tarballPath,
-		Profile:     effectiveConfig.General.DefaultProfile,
-		CustomFlags: customFlags,
-		Jobs:        effectiveConfig.General.ParallelJobs,
+		Version:      version,
+		TarballPath:  tarballPath,
+		Profile:      effectiveConfig.General.DefaultProfile,
+		CustomFlags:  customFlags,
+		Jobs:         effectiveConfig.General.ParallelJobs,
+		SourceURL:    tarball.URL,
+		SHA256:       tarball.SHA256,
+		Verification: verification,
 	}
 
 	if err := builder.Build(ctx, buildOpts); err != nil {
 		log.Error("Build failed: %v", err)
 		log.Print("Check the log file: %s", logPath)
 		os.Exit(1)
-	}
-
-	// Save metadata
-	duration := time.Since(startTime)
-	if err := builder.SaveMetadataContext(ctx, version, tarball.URL, tarball.SHA256, verification, duration); err != nil {
-		log.Warn("Failed to save metadata: %v", err)
 	}
 
 	// Set as current if no current version

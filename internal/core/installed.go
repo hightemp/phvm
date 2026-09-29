@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -64,11 +65,42 @@ func (m *InstalledManager) List() ([]string, error) {
 
 // IsInstalled checks if a version is installed.
 func (m *InstalledManager) IsInstalled(version string) bool {
+	version, err := NormalizeInstalledVersion(version)
+	if err != nil {
+		return false
+	}
 	root, err := m.paths.OpenVersion(version, false)
 	if err != nil {
 		return false
 	}
 	defer root.Close()
+	data, metadataErr := root.ReadFile(".phvm-metadata.json")
+	if metadataErr != nil && !os.IsNotExist(metadataErr) {
+		return false
+	}
+	if metadataErr == nil {
+		var metadata Metadata
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return false
+		}
+		if metadata.InstallationState != "" && (metadata.InstallationState != "ready" || metadata.Version != version) {
+			return false
+		}
+		if metadata.InstallationState == "ready" {
+			if len(metadata.InstallationID) != 16 || metadata.PHPAPI == "" {
+				return false
+			}
+			if _, err := hex.DecodeString(metadata.InstallationID); err != nil {
+				return false
+			}
+			for _, name := range []string{"bin/phpize", "bin/php-config", "etc/php.ini", "include/php/Zend/zend_modules.h"} {
+				info, err := root.Lstat(filepath.FromSlash(name))
+				if err != nil || !info.Mode().IsRegular() {
+					return false
+				}
+			}
+		}
+	}
 	info, err := root.Stat(filepath.Join("bin", PHPBinary()))
 	return err == nil && info.Mode().IsRegular()
 }

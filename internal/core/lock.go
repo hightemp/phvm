@@ -41,6 +41,10 @@ func (p *Paths) LockState(ctx context.Context) (context.Context, func() error, e
 	if err != nil {
 		return ctx, nil, err
 	}
+	if err := p.RecoverInstallTransactions(ctx); err != nil {
+		_ = release()
+		return ctx, nil, err
+	}
 	lease := &stateLease{root: key}
 	lease.active.Store(true)
 	return context.WithValue(ctx, stateLockKey{}, lease), func() error {

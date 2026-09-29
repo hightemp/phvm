@@ -97,6 +97,35 @@ phvm current
 | `phvm ls` | List installed versions |
 | `phvm ls-remote` | List available versions |
 
+### PHP installation and reinstallation
+
+`phvm install <version> --force` rebuilds an installed version. PHP is configured
+with its final prefix and installed into a temporary directory using
+[PHP's `INSTALL_ROOT`](https://github.com/php/php-src/blob/PHP-8.3/build/Makefile.global).
+The candidate stays outside the installed-version list until publication.
+
+Before publication, phvm checks the PHP version/prefix, CLI runtime, php-config,
+module API in the installed headers and startup with the candidate configuration.
+Metadata is required and written as part of the candidate. Startup diagnostics
+or a metadata write error fail installation. User configuration, Composer
+launchers, extension metadata and other existing files are preserved; recorded
+extension libraries are copied with their ownership hashes checked. Enabled
+extensions must load with the new PHP runtime.
+
+Reinstallation keeps the previous directory until the candidate also passes
+validation at its final path. Returned publication errors restore the previous
+installation; failures do not switch current or aliases. A transaction journal
+allows the next managed-state command to roll back interrupted publication or
+clean up a committed transaction.
+
+Directory replacement uses two renames under the shared state lock. Commands
+using that lock see the completed state; programs accessing PHP paths directly
+can observe the short interval between renames. The journal supports process
+interruption recovery and does not promise durability after sudden power loss.
+Legacy installations without a publication marker remain supported. New ready
+installations require their metadata and SDK files; incomplete or corrupt
+publication records are excluded from `ls`.
+
 ### Aliases
 
 `phvm use` resolves only installed PHP releases. A full version selects that
@@ -133,7 +162,7 @@ leaves the previous current version intact.
 | Command | Description |
 |---------|-------------|
 | `phvm ext install <name>` | Install PECL extension |
-| `phvm ext uninstall <name>` | Remove the exact extension's ini/metadata |
+| `phvm ext uninstall <name>` | Remove exact configuration, metadata and verified owned library |
 | `phvm ext enable <name>` | Enable extension |
 | `phvm ext disable <name>` | Disable extension |
 | `phvm ext list` | List built-in, enabled, disabled, missing and broken extensions |

@@ -36,6 +36,12 @@ else
 fi
 
 printf 'Releasing %s from branch %s\n' "$tag" "$branch"
+printf 'Changes included by git add -A:\n'
+git status --short --untracked-files=all
+source_state=$(python3 scripts/release_state.py)
+make release-check || fail "release preflight failed; no commit or tag created"
+[ "$(cat VERSION)" = "$version" ] || fail "VERSION changed during preflight"
+[ "$(python3 scripts/release_state.py)" = "$source_state" ] || fail "source, index or HEAD changed during preflight; retry checks"
 git add -A
 git commit --allow-empty -m "chore: release $tag"
 git tag -a "$tag" -m "Release $tag"

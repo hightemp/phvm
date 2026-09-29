@@ -12,6 +12,7 @@ phvm is a cross-platform PHP version manager written in Go 1.27.1. The required 
 # Build
 make build                    # Build the binary
 make build-all                # Build for all platforms (linux/darwin/windows, amd64/arm64)
+make release-check            # Preflight, snapshot packaging and artifact smoke; no commit/tag/push
 
 # Run without building
 make dev ARGS="install 8.3"   # Run with go run
@@ -37,6 +38,7 @@ make vet                      # Run go vet
 make govulncheck               # Check known Go and dependency vulnerabilities
 make gosec                     # Check source security issues
 make security                 # Run govulncheck and gosec
+make security-baseline        # Keep all gosec findings; reject new identities beyond reviewed baseline
 
 # Direct golangci-lint (if installed)
 golangci-lint run ./...
@@ -49,6 +51,9 @@ Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck` (includes for
 ```bash
 # Run all tests
 make test                     # Runs: go test -v -race -cover ./...
+make test-release             # Isolated Git release lifecycle
+make test-installers          # Installer integrity and publication
+make test-checks              # Security baseline and release archive regressions
 
 # Run tests with coverage report
 make test-coverage            # Generates coverage.html

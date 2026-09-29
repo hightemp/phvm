@@ -7,11 +7,14 @@ LDFLAGS := -ldflags "-s -w -X github.com/hightemp/phvm/internal/cli.Version=$(VE
 
 GO := go
 GOFLAGS := -trimpath
-GOLANGCI_LINT_VERSION := v2.14.0
-GOVULNCHECK_VERSION := v1.8.0
-GOSEC_VERSION := v2.29.0
+GOLANGCI_LINT_VERSION := $(shell python3 scripts/tool_version.py golangci-lint)
+GOVULNCHECK_VERSION := $(shell python3 scripts/tool_version.py govulncheck)
+GOSEC_VERSION := $(shell python3 scripts/tool_version.py gosec)
+GORELEASER_VERSION := $(shell python3 scripts/tool_version.py goreleaser)
+ACTIONLINT_VERSION := $(shell python3 scripts/tool_version.py actionlint)
+GORELEASER := $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
-.PHONY: all build build-all clean test test-release test-installers release lint fmt vet verify security govulncheck gosec install uninstall help
+.PHONY: all build build-all clean test test-release test-installers test-checks release release-check release-package-check release-config-check lint fmt vet verify security security-baseline govulncheck gosec install uninstall help
 
 # Default target
 all: lint test build
@@ -49,6 +52,27 @@ test-release:
 # Test installer verification/publication with isolated mocked downloads
 test-installers:
 	python3 -B -m unittest discover -s scripts/tests -p 'test_installers.py' -v
+
+test-checks:
+	python3 -B -m unittest discover -s scripts/tests -p 'test_security_baseline.py' -v
+	python3 -B -m unittest discover -s scripts/tests -p 'test_artifacts.py' -v
+
+# Read-only release preflight; snapshot artifacts are kept in ignored dist/.
+release-check:
+	git diff --check
+	python3 scripts/check_release_version.py
+	$(MAKE) release-config-check
+	$(MAKE) verify vet lint test govulncheck security-baseline test-release test-installers test-checks
+	$(MAKE) release-package-check
+
+release-config-check:
+	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck= -pyflakes=
+	$(GORELEASER) check --config .goreleaser.yml
+
+release-package-check:
+	python3 scripts/check_release_version.py
+	PHVM_RELEASE_VERSION=$(VERSION) $(GORELEASER) release --snapshot --clean --config .goreleaser.yml
+	python3 scripts/check_release_artifacts.py --dist dist --version $(VERSION)
 
 # Commit and publish the version from VERSION, triggering the release workflow
 release:
@@ -126,6 +150,14 @@ govulncheck:
 gosec:
 	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) ./...
 
+# Keep the full scanner report and fail only on new reviewed identities.
+security-baseline:
+	@mkdir -p reports
+	@rm -f reports/gosec.json
+	@status=0; $(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -fmt=json -out=reports/gosec.json ./... || status=$$?; \
+	if [ $$status -gt 1 ]; then exit $$status; fi
+	python3 scripts/check_security_baseline.py --report reports/gosec.json --baseline .gosec-baseline.json
+
 # Update dependencies
 update-deps:
 	@echo "Updating dependencies..."
@@ -144,6 +176,9 @@ help:
 	@echo "  test-installers Test release archive verification and installer publication"
 	@echo "  test-coverage  Run tests with coverage report"
 	@echo "  release        Commit all changes and push the VERSION tag to origin"
+	@echo "  release-check  Validate source, security, workflows and six release archives without publishing"
+	@echo "  release-package-check Build and smoke-test GoReleaser snapshot artifacts"
+	@echo "  test-checks    Test archive and source security gates"
 	@echo "  lint           Run golangci-lint"
 	@echo "  fmt            Format code"
 	@echo "  vet            Vet code"
@@ -157,5 +192,6 @@ help:
 	@echo "  security       Run security checks"
 	@echo "  govulncheck    Check known dependency and Go vulnerabilities"
 	@echo "  gosec          Check source code for security issues"
+	@echo "  security-baseline Keep full gosec findings and reject identities absent from the reviewed baseline"
 	@echo "  update-deps    Update dependencies"
 	@echo "  help           Show this help"

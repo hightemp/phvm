@@ -4,6 +4,7 @@
 
 # Cross-compilation output (make build-all)
 /dist/
+/reports/
 
 # Test coverage (make test-coverage)
 coverage.out

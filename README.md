@@ -629,16 +629,23 @@ make gosec
 make security
 ```
 
-The tools run through `go run` with versions pinned in the Makefile:
+The tools run through `go run` with versions pinned in `scripts/tool_versions.json`:
 govulncheck `v1.8.0`, gosec `v2.29.0`, and golangci-lint `v2.14.0`.
+Release checks also pin GoReleaser `v2.18.2` and actionlint `v1.7.12`.
 No separate global installation is required. The first run downloads the
 tools and their dependencies to the Go module cache.
 
-`govulncheck` and `gosec` run as separate CI jobs and return a nonzero exit
-status when findings remain. Gosec findings require review and can include
-false positives. Existing findings are not suppressed by this configuration.
-Release packaging checks known vulnerabilities before building artifacts.
-Go versions in CI and release builds are read from `go.mod`.
+`make gosec` remains strict and returns a nonzero status for any findings.
+CI and release preflight use `make security-baseline`: the full report is kept
+in `reports/gosec.json`, while new findings block the command. The reviewed
+`.gosec-baseline.json` currently contains 45 existing findings; it does not
+declare them fixed. Identity includes rule, file, code, severity and confidence.
+Moving source line numbers alone does not add an exception. Missing or invalid
+scanner reports and analysis errors fail the check. Refreshing the baseline
+requires an explicit review and is never performed by CI.
+
+CI tests run on the minimum Go version declared in `go.mod` and current stable
+Go. Release packaging uses `go.mod` and the same pinned tools as local preflight.
 
 Integrity checks stop installation on a SHA256 mismatch, malformed Composer
 checksum, or invalid/revoked GPG signature. Composer is downloaded to a unique
@@ -675,9 +682,32 @@ printf '1.0.7\n' > VERSION
 make release
 ```
 
-`make release` stages all non-ignored changes, creates a `chore: release vX.Y.Z`
+Run checks without creating a commit/tag or publishing:
+
+```bash
+make release-check
+```
+
+This runs version/source checks, dependency verification, vet, lint, race tests,
+govulncheck, the gosec baseline, installer/release/checker regressions,
+actionlint, GoReleaser schema validation, and snapshot packaging. The snapshot
+uses `VERSION` even before its tag exists. All six archives must match installer
+filenames, SHA256, executable format/architecture and embedded Go version flags;
+the host binary is extracted and its `version` command executed. Checks also
+require LICENSE/README and reject links, duplicates and unsafe archive paths.
+Build artifacts stay in ignored `dist/`, reports in ignored `reports/`.
+
+`make release` previews all included changes and runs this preflight before
+staging. Failure creates no commit/tag and preserves the existing index. Source,
+index, HEAD and VERSION changes during preflight require retrying the checks.
+After success, it stages all non-ignored changes, creates a `chore: release vX.Y.Z`
 commit and an annotated `vX.Y.Z` tag, then pushes the current branch and tag to
 `origin` atomically. The tag push triggers `.github/workflows/release.yml`.
+That workflow validates tag/committed VERSION, repeats preflight and runs archive
+smoke on Linux/macOS/Windows before its publication job. Foreign binaries receive
+build metadata checks locally; CI executes the matching native target on each OS.
+Publication uses pinned GoReleaser to rebuild from the checked tag; snapshot
+artifacts are validation outputs rather than the final uploaded bytes.
 Existing local or remote tags are rejected before committing. If the push
 fails, the local commit and tag remain, and the command prints how to retry.
 Update `VERSION` before each new release.
@@ -686,6 +716,8 @@ Test the automation using temporary local Git repositories:
 
 ```bash
 make test-release
+make test-installers
+make test-checks
 ```
 
 ## PHP Build Requirements

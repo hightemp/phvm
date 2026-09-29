@@ -31,8 +31,23 @@ class ReleaseTests(unittest.TestCase):
         (self.repo / "scripts").mkdir()
         shutil.copyfile(PROJECT_ROOT / "Makefile", self.repo / "Makefile")
         shutil.copyfile(PROJECT_ROOT / "scripts/release.sh", self.repo / "scripts/release.sh")
+        for name in ["tool_version.py", "tool_versions.json", "release_state.py"]:
+            shutil.copyfile(PROJECT_ROOT / "scripts" / name, self.repo / "scripts" / name)
+        # Isolate expensive preflight tools while exercising the real publish path.
+        with (self.repo / "Makefile").open("a") as makefile:
+            makefile.write('''
+.PHONY: release-check
+release-check:
+\t@printf 'checked\\n' >> preflight-ran
+\t@if [ "$$PHVM_TEST_PREFLIGHT_FAIL" = 1 ]; then echo "fixture check failed"; exit 1; fi
+\t@if [ "$$PHVM_TEST_CHANGE_VERSION" = 1 ]; then echo 9.9.9 > VERSION; fi
+\t@if [ "$$PHVM_TEST_CHANGE_SOURCE" = 1 ]; then echo changed > source.txt; fi
+''')
+        self.env["PHVM_TEST_PREFLIGHT_FAIL"] = "0"
+        self.env["PHVM_TEST_CHANGE_VERSION"] = "0"
+        self.env["PHVM_TEST_CHANGE_SOURCE"] = "0"
         (self.repo / "VERSION").write_text("1.0.6\n")
-        (self.repo / ".gitignore").write_text("/phvm\n")
+        (self.repo / ".gitignore").write_text("/phvm\n/preflight-ran\n")
         self.git("add", ".")
         self.git("commit", "-m", "Initial version")
         self.git("remote", "add", "origin", str(self.remote))
@@ -72,6 +87,47 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.remote_git("show", "v1.0.7:change.txt").stdout, "release content\n")
         self.assertEqual(self.git("status", "--porcelain").stdout, "")
         self.assertNotIn("phvm\n", self.git("ls-files").stdout)
+        self.assertTrue((self.repo / "preflight-ran").exists(), "release skipped preflight")
+        self.assertIn("change.txt", result.stdout, "release changes were not previewed")
+
+    def test_failed_preflight_preserves_head_index_tags_and_remote(self):
+        self.env["PHVM_TEST_PREFLIGHT_FAIL"] = "1"
+        (self.repo / "staged.txt").write_text("already staged\n")
+        self.git("add", "staged.txt")
+        index_before = self.git("write-tree").stdout
+        result = self.release()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), self.initial)
+        self.assertEqual(self.git("write-tree").stdout, index_before)
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+        self.assertEqual(self.remote_git("rev-parse", "refs/heads/main").stdout.strip(), self.initial)
+        self.assertEqual(self.remote_git("tag", "--list").stdout, "")
+
+    def test_preflight_cannot_change_version_before_tagging(self):
+        self.env["PHVM_TEST_CHANGE_VERSION"] = "1"
+        result = self.release()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assert_no_local_release()
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+
+    def test_preflight_cannot_publish_changed_source(self):
+        self.env["PHVM_TEST_CHANGE_SOURCE"] = "1"
+        result = self.release()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assert_no_local_release()
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+
+    def test_release_tag_must_match_version_and_head(self):
+        import sys
+        checker = PROJECT_ROOT / "scripts/check_release_version.py"
+        self.git("add", "VERSION")
+        self.git("commit", "-m", "Prepare release")
+        self.git("tag", "v1.0.7")
+        for tag, version, valid in [("v1.0.7", "1.0.7", True), ("v1.0.8", "1.0.7", False), ("v1.0.7", "1.0.8", False)]:
+            with self.subTest(tag=tag, version=version):
+                (self.repo / "VERSION").write_text(version + "\n")
+                result = self.run_command(sys.executable, str(checker), "--tag", tag, check=False)
+                self.assertEqual(result.returncode == 0, valid, result.stdout)
 
     def test_invalid_version_does_not_stage_or_commit(self):
         for version in ["", "1.2", "v1.2.3", "01.2.3", "../bad", "1.2.3\n1.2.4"]:

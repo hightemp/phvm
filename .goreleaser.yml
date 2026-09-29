@@ -2,10 +2,8 @@ version: 2
 
 project_name: phvm
 
-before:
-  hooks:
-    - go mod tidy
-    - go generate ./...
+snapshot:
+  version_template: '{{ .Env.PHVM_RELEASE_VERSION }}'
 
 builds:
   - id: phvm
@@ -27,13 +25,13 @@ builds:
 
 archives:
   - id: phvm
-    builds:
+    ids:
       - phvm
-    format: tar.gz
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - LICENSE
       - README.md
@@ -60,20 +58,17 @@ release:
   prerelease: auto
   mode: replace
 
-brews:
+homebrew_casks:
   - name: phvm
     skip_upload: true
     repository:
       owner: hightemp
       name: homebrew-tap
-    directory: Formula
+    directory: Casks
     homepage: https://github.com/hightemp/phvm
     description: PHP Version Manager - install and manage PHP versions from source
     license: MIT
-    install: |
-      bin.install "phvm"
-    test: |
-      system "#{bin}/phvm", "version"
+    binaries: [phvm]
 
 nfpms:
   - id: phvm

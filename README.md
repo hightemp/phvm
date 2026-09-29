@@ -146,6 +146,7 @@ files are supported. The provided module from [PECL package.xml](https://pear.ph
 is recorded with its exact binary and ini paths in installation metadata.
 
 ```bash
+phvm ext list
 phvm ext list --php 8.3
 phvm ext disable redis --php prod
 phvm ext enable redis --php prod

@@ -117,7 +117,7 @@ phvm current
 |---------|-------------|
 | `phvm install <version>` | Install a PHP version |
 | `phvm uninstall <version>` | Remove an installed version |
-| `phvm use <version>` | Switch to a version |
+| `phvm use [version-or-alias]` | Switch to an explicit or project-selected installed version |
 | `phvm current` | Show active version |
 | `phvm ls` | List installed versions |
 | `phvm ls-remote` | List available versions |
@@ -170,6 +170,29 @@ phvm use latest
 phvm composer disable --php 8.3
 phvm ext disable redis --php prod
 ```
+
+### Project PHP version
+
+Place one version or local alias in `.php-version` and run `phvm use` from the
+project directory:
+
+```bash
+printf '8.3\n' > .php-version
+phvm use
+```
+
+Without an argument, `use` reads the nearest `.php-version`, searching from the
+current directory through its parents to the filesystem root. It accepts the
+same full/partial versions and aliases as `phvm use <version>` and selects only
+an installed PHP release. An explicit argument ignores `.php-version`.
+`PHVM_VERSION` selects the phvm release in the installer; it does not select a
+PHP version for `phvm use`.
+
+The file must be a regular file with one nonempty value (at most 4 KiB).
+Symlinks, multiple values, unknown aliases and uninstalled versions produce an
+error without changing `current`. No file also produces an error with a hint to
+pass a version explicitly. Sourcing shell initialization does not switch PHP
+when changing directories; run `phvm use` in the project when needed.
 
 The `--php` flags for Composer and extensions use the same installed-version
 resolver. They select the target for that operation and do not switch `current`.

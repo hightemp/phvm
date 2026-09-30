@@ -14,9 +14,13 @@ import (
 )
 
 var useCmd = &cobra.Command{
-	Use:   "use <version|alias>",
+	Use:   "use [version|alias]",
 	Short: "Switch to a PHP version",
 	Long: `Switch the current PHP version.
+
+Without an argument, read the nearest .php-version from the current directory
+or one of its parents. The file contains one version or local alias using the
+same syntax as an explicit argument. An explicit argument ignores the file.
 
 The version can be a full version number (8.3.30), a partial version (8.3),
 or a local alias (default, prod). Partial versions select the newest matching
@@ -27,14 +31,24 @@ the newest installed release, without network access. Define lts explicitly
 as a local alias if needed. Alias cycles and missing versions are errors.
 
 Examples:
+  phvm use
   phvm use 8.3.30
   phvm use 8.3
   phvm use default
   phvm use latest`,
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeInstalledPHP,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		versionArg := args[0]
+		var versionArg, projectFile string
+		if len(args) == 1 {
+			versionArg = args[0]
+		} else {
+			var err error
+			versionArg, projectFile, err = findProjectPHPVersion()
+			if err != nil {
+				return err
+			}
+		}
 		paths := GetPaths()
 
 		installed := core.NewInstalledManager(paths)
@@ -42,7 +56,11 @@ Examples:
 
 		version, err := installed.Resolve(versionArg)
 		if err != nil {
-			return redact.Error(err, versionArg)
+			resolutionErr := redact.Error(err, versionArg)
+			if projectFile != "" {
+				return fmt.Errorf("resolve %s: %w", projectFile, resolutionErr)
+			}
+			return resolutionErr
 		}
 
 		// Switch

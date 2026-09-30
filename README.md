@@ -1,8 +1,11 @@
 # phvm - PHP Version Manager
 
 [![GitHub release](https://img.shields.io/github/v/release/hightemp/phvm)](https://github.com/hightemp/phvm/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/hightemp/phvm/main?logo=go)](https://github.com/hightemp/phvm/blob/main/go.mod)
 [![GitHub downloads](https://img.shields.io/github/downloads/hightemp/phvm/total)](https://github.com/hightemp/phvm/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hightemp/phvm)](https://goreportcard.com/report/github.com/hightemp/phvm)
+[![CI](https://github.com/hightemp/phvm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hightemp/phvm/actions/workflows/ci.yml)
+[![Tests](https://github.com/hightemp/phvm/actions/workflows/scenarios.yml/badge.svg?branch=main)](https://github.com/hightemp/phvm/actions/workflows/scenarios.yml)
+[![Release](https://github.com/hightemp/phvm/actions/workflows/release.yml/badge.svg)](https://github.com/hightemp/phvm/actions/workflows/release.yml)
 ![](https://asdertasd.site/counter/phvm)
 
 A fast, cross-platform PHP version manager inspired by [nvm](https://github.com/nvm-sh/nvm). Install PHP from source, manage multiple versions, and switch between them seamlessly.

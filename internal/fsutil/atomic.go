@@ -13,46 +13,12 @@ import (
 // AtomicWriteFile writes data to a file atomically.
 // It writes to a temporary file first, then renames it to the target.
 func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-
-	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-
-	defer func() {
-		if tmpFile != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
+	return atomicReplace(path, perm, func(file atomicTempFile) error {
+		if _, err := file.Write(data); err != nil {
+			return fmt.Errorf("write temp file: %w", err)
 		}
-	}()
-
-	if _, err := tmpFile.Write(data); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
-	}
-
-	if err := tmpFile.Chmod(perm); err != nil {
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		return fmt.Errorf("sync temp file: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	tmpFile = nil // Prevent deferred cleanup
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename temp file: %w", err)
-	}
-
-	return nil
+		return nil
+	}, createAtomicTemp, os.Rename)
 }
 
 // AtomicCopyFile copies a file atomically.
@@ -63,45 +29,65 @@ func AtomicCopyFile(src, dst string, perm os.FileMode) error {
 	}
 	defer srcFile.Close()
 
+	return atomicReplace(dst, perm, func(file atomicTempFile) error {
+		if _, err := io.Copy(file, srcFile); err != nil {
+			return fmt.Errorf("copy data: %w", err)
+		}
+		return nil
+	}, createAtomicTemp, os.Rename)
+}
+
+type atomicTempFile interface {
+	io.Writer
+	Name() string
+	Chmod(os.FileMode) error
+	Sync() error
+	Close() error
+}
+
+func createAtomicTemp(dir string) (atomicTempFile, error) {
+	return os.CreateTemp(dir, ".tmp-*")
+}
+
+func atomicReplace(dst string, perm os.FileMode, write func(atomicTempFile) error, createTemp func(string) (atomicTempFile, error), rename func(string, string) error) error {
 	dir := filepath.Dir(dst)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
-
-	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
+	tmpFile, err := createTemp(dir)
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-
+	published := false
+	// A closed handle still leaves a temp path behind when publication fails.
 	defer func() {
 		if tmpFile != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
+			_ = tmpFile.Close()
+		}
+		if !published {
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
-	if _, err := io.Copy(tmpFile, srcFile); err != nil {
-		return fmt.Errorf("copy data: %w", err)
+	if err := write(tmpFile); err != nil {
+		return err
 	}
-
 	if err := tmpFile.Chmod(perm); err != nil {
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
-
 	if err := tmpFile.Sync(); err != nil {
 		return fmt.Errorf("sync temp file: %w", err)
 	}
-
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 	tmpFile = nil
 
-	if err := os.Rename(tmpPath, dst); err != nil {
+	if err := rename(tmpPath, dst); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
 	}
-
+	published = true
 	return nil
 }
 

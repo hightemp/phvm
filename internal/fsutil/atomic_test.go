@@ -1,10 +1,182 @@
 package fsutil
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+type faultingAtomicTemp struct {
+	*os.File
+	stage string
+	fault error
+}
+
+func (f *faultingAtomicTemp) Write(p []byte) (int, error) {
+	if f.stage == "write" {
+		n, _ := f.File.Write(p[:1])
+		return n, f.fault
+	}
+	return f.File.Write(p)
+}
+
+func (f *faultingAtomicTemp) Chmod(mode os.FileMode) error {
+	if f.stage == "chmod" {
+		return f.fault
+	}
+	return f.File.Chmod(mode)
+}
+
+func (f *faultingAtomicTemp) Sync() error {
+	if f.stage == "sync" {
+		return f.fault
+	}
+	return f.File.Sync()
+}
+
+func (f *faultingAtomicTemp) Close() error {
+	err := f.File.Close()
+	if err == nil && f.stage == "close" {
+		return f.fault
+	}
+	return err
+}
+
+func TestAtomicReplacementCleansEveryFailureStage(t *testing.T) {
+	for _, stage := range []string{"write", "chmod", "sync", "close", "rename"} {
+		t.Run(stage, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "target")
+			if err := os.WriteFile(target, []byte("old data"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			unrelated := filepath.Join(dir, ".tmp-preserve")
+			if err := os.WriteFile(unrelated, []byte("keep"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			fault := errors.New("injected " + stage + " failure")
+			create := func(dir string) (atomicTempFile, error) {
+				file, err := os.CreateTemp(dir, ".tmp-*")
+				if err != nil {
+					return nil, err
+				}
+				return &faultingAtomicTemp{File: file, stage: stage, fault: fault}, nil
+			}
+			write := func(file atomicTempFile) error {
+				if _, err := file.Write([]byte("new data")); err != nil {
+					return fmt.Errorf("write temp file: %w", err)
+				}
+				return nil
+			}
+			rename := os.Rename
+			if stage == "rename" {
+				rename = func(_, _ string) error { return fault }
+			}
+			if err := atomicReplace(target, 0644, write, create, rename); !errors.Is(err, fault) {
+				t.Fatalf("want stage error, got %v", err)
+			}
+			data, err := os.ReadFile(target)
+			if err != nil || string(data) != "old data" {
+				t.Errorf("prior destination changed: %q, %v", data, err)
+			}
+			info, err := os.Stat(target)
+			if err != nil || info.Mode().Perm() != before.Mode().Perm() {
+				t.Errorf("prior destination mode changed: %v, %v", info, err)
+			}
+			files, err := filepath.Glob(filepath.Join(dir, ".tmp-*"))
+			if err != nil || len(files) != 1 || files[0] != unrelated {
+				t.Errorf("temp cleanup touched another file or left staging: %v, %v", files, err)
+			}
+		})
+	}
+}
+
+func TestAtomicFilesRemoveOnlyTheirOwnTempOnRenameFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(string, string) error
+	}{
+		{"write", func(src, dst string) error { return AtomicWriteFile(dst, []byte("new data"), 0600) }},
+		{"copy", func(src, dst string) error { return AtomicCopyFile(src, dst, 0600) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "existing-directory")
+			if err := os.Mkdir(target, 0700); err != nil {
+				t.Fatal(err)
+			}
+			original := filepath.Join(target, "original")
+			if err := os.WriteFile(original, []byte("keep"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			unrelated := filepath.Join(dir, ".tmp-preserve")
+			if err := os.WriteFile(unrelated, []byte("unrelated"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			source := filepath.Join(dir, "source")
+			if err := os.WriteFile(source, []byte("new data"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.write(source, target); err == nil || !strings.Contains(err.Error(), "rename temp file") {
+				t.Fatalf("want rename error, got %v", err)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".tmp-") && entry.Name() != filepath.Base(unrelated) {
+					t.Errorf("failed operation left temp %q", entry.Name())
+				}
+			}
+			for path, want := range map[string]string{original: "keep", unrelated: "unrelated", source: "new data"} {
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != want {
+					t.Errorf("%s = %q, %v; want %q", path, got, err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestAtomicFilesReplaceExistingFileWithoutTemp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write func(string, string) error
+	}{
+		{"write", func(src, dst string) error { return AtomicWriteFile(dst, []byte("replacement"), 0600) }},
+		{"copy", func(src, dst string) error { return AtomicCopyFile(src, dst, 0600) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "target")
+			if err := os.WriteFile(target, []byte("old"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			source := filepath.Join(dir, "source")
+			if err := os.WriteFile(source, []byte("replacement"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.write(source, target); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(target)
+			if err != nil || string(data) != "replacement" {
+				t.Fatalf("published file = %q, %v", data, err)
+			}
+			if temps, err := filepath.Glob(filepath.Join(dir, ".tmp-*")); err != nil || len(temps) != 0 {
+				t.Errorf("temporary files after success: %v, %v", temps, err)
+			}
+		})
+	}
+}
 
 func TestAtomicWriteFile(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "phvm-test-*")

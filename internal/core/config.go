@@ -81,6 +81,13 @@ func DefaultConfig() *Config {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		absent, checkErr := configPathIsAbsent(path)
+		if checkErr != nil {
+			return nil, fmt.Errorf("read config file: %w", checkErr)
+		}
+		if !absent {
+			return nil, fmt.Errorf("read config file: %w", err)
+		}
 		return DefaultConfig(), nil
 	}
 	if err != nil {
@@ -88,6 +95,34 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return parseConfig(data)
+}
+
+func configPathIsAbsent(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("configuration path is not a regular file: %s", path)
+		}
+		return false, nil
+	}
+	if !os.IsNotExist(err) {
+		return false, err
+	}
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		info, err := os.Stat(dir)
+		if err == nil {
+			if !info.IsDir() {
+				return false, fmt.Errorf("configuration parent is not a directory: %s", dir)
+			}
+			return true, nil
+		}
+		if !os.IsNotExist(err) {
+			return false, err
+		}
+		if filepath.Dir(dir) == dir {
+			return true, nil
+		}
+	}
 }
 
 func parseConfig(data []byte) (*Config, error) {

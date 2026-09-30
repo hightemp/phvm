@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,9 @@ func TestVerifyRealGPG(t *testing.T) {
 		flags := append([]string{"--batch", "--no-tty", "--no-options", "--homedir", home}, args...)
 		out, err := exec.Command(gpg, flags...).CombinedOutput()
 		if err != nil {
+			if runtime.GOOS == "windows" && (strings.Contains(string(out), "No agent running") || strings.Contains(string(out), "can't connect to the gpg-agent")) {
+				t.Skipf("native GPG agent is unavailable on this runner: %v", err)
+			}
 			t.Fatalf("fixture GPG: %v\n%s", err, out)
 		}
 		return out

@@ -12,6 +12,13 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 )
 
+func requirePOSIXPHPProbe(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("this PHP startup fixture is a POSIX shell script; no Windows PHP SDK is provisioned")
+	}
+}
+
 func profileFixture(t *testing.T) *core.Paths {
 	t.Helper()
 	p := core.NewPaths(t.TempDir())
@@ -69,6 +76,7 @@ func configurationBytes(t *testing.T, dir string) map[string]string {
 }
 
 func TestProfileSwitchResolvesEnabledDisabledCounterparts(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	m := NewProfileManager(p)
 	writeProfileFile(t, filepath.Join(p.VersionConfD("8.3.30"), "20-redis.ini"), "extension=redis.so\n")
@@ -137,6 +145,7 @@ func TestProfileRejectsAmbiguousEnabledAndDisabledCopies(t *testing.T) {
 }
 
 func TestRepeatedProfileApplicationKeepsUniqueBackups(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	m := NewProfileManager(p)
 	writeProfileFile(t, filepath.Join(p.ProfileDir("prod"), "php.ini"), "memory_limit=256M\n")
@@ -153,6 +162,7 @@ func TestRepeatedProfileApplicationKeepsUniqueBackups(t *testing.T) {
 }
 
 func TestSavedProfileIsExactSnapshotAndResaveRemovesStaleFiles(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	m := NewProfileManager(p)
 	writeProfileFile(t, filepath.Join(p.VersionConfD("8.3.30"), "20-redis.ini.disabled"), "extension=redis.so\n")
@@ -182,6 +192,7 @@ func TestSavedProfileIsExactSnapshotAndResaveRemovesStaleFiles(t *testing.T) {
 }
 
 func TestBuiltinProfileOnlyChangesPHPIni(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	m := NewProfileManager(p)
 	if err := m.CreateDefaultProfiles(); err != nil {
@@ -197,6 +208,7 @@ func TestBuiltinProfileOnlyChangesPHPIni(t *testing.T) {
 }
 
 func TestProfileMetadataUsesExactModuleInsteadOfIniFilename(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	meta := core.NewMetadata("8.3.30")
 	meta.Extensions["redis"] = core.ExtMetadata{Module: "redis", IniFile: "20-redis.ini", Enabled: true}
@@ -218,6 +230,7 @@ func TestProfileMetadataUsesExactModuleInsteadOfIniFilename(t *testing.T) {
 }
 
 func TestLateProfileValidationFailureRestoresConfiguration(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	writeProfileFile(t, filepath.Join(p.ProfileDir("candidate"), "php.ini"), "memory_limit=256M\n")
 	php := filepath.Join(p.VersionBin("8.3.30"), core.PHPBinary())
@@ -238,6 +251,7 @@ func TestLateProfileValidationFailureRestoresConfiguration(t *testing.T) {
 }
 
 func TestProfileBackupLimitAndCancellation(t *testing.T) {
+	requirePOSIXPHPProbe(t)
 	p := profileFixture(t)
 	m := NewProfileManager(p)
 	if err := m.SetBackupLimit(2); err != nil {

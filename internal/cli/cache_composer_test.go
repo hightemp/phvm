@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hightemp/phvm/internal/core"
 )
@@ -45,6 +47,44 @@ func seedLegacyComposer(t *testing.T, names ...string) *core.Paths {
 	return p
 }
 
+func TestRelativePHVMRootUnderSymlinkedParentSharesStateLock(t *testing.T) {
+	withoutConfigEnv(t)
+	bin := buildTestCLI(t)
+	p := seedLegacyComposer(t)
+	linkedParent := filepath.Join(t.TempDir(), "linked-parent")
+	if err := os.Symlink(filepath.Dir(p.Root), linkedParent); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	linkedRoot := filepath.Join(linkedParent, filepath.Base(p.Root))
+	legacyPHAR := filepath.Join(linkedRoot, "cache", "downloads", "composer.phar")
+	for _, version := range []string{"8.3.30", "8.2.30"} {
+		php := filepath.Join(linkedRoot, "versions", "php", version, "bin", core.PHPBinary())
+		wrapper := fmt.Sprintf("#!/bin/sh\nexec \"%s\" \"%s\" \"$@\"\n", php, legacyPHAR)
+		if err := os.WriteFile(filepath.Join(p.VersionBin(version), "composer"), []byte(wrapper), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--phvm-dir", filepath.Base(p.Root), "cache", "clear", "--downloads")
+	cmd.Dir = linkedParent
+	for _, item := range os.Environ() {
+		if !strings.HasPrefix(item, "PWD=") {
+			cmd.Env = append(cmd.Env, item)
+		}
+	}
+	cmd.Env = append(cmd.Env, "PWD="+linkedParent)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("relative root migration timed out or failed: %v, context=%v\n%s", err, ctx.Err(), out)
+	}
+	launcher := filepath.Join(p.VersionBin("8.3.30"), "composer")
+	cmd = exec.Command(launcher, "--version")
+	cmd.Dir = t.TempDir()
+	if out, err := cmd.CombinedOutput(); err != nil || string(out) != "Composer version 2.9.0\n" {
+		t.Errorf("migrated Composer launcher failed from another directory: %v %s", err, out)
+	}
+}
+
 func TestMigratedComposerTreatsPathsLiterally(t *testing.T) {
 	withoutConfigEnv(t)
 	bin := buildTestCLI(t)
@@ -63,10 +103,12 @@ func TestRelativePHVMRootMigratesToAbsoluteLaunchers(t *testing.T) {
 	withoutConfigEnv(t)
 	bin := buildTestCLI(t)
 	p := seedLegacyComposer(t)
-	cmd := exec.Command(bin, "--phvm-dir", filepath.Base(p.Root), "cache", "clear", "--downloads")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--phvm-dir", filepath.Base(p.Root), "cache", "clear", "--downloads")
 	cmd.Dir = filepath.Dir(p.Root)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("relative root migration: %v %s", err, out)
+		t.Fatalf("relative root migration: %v, context=%v %s", err, ctx.Err(), out)
 	}
 	cmd = exec.Command(filepath.Join(p.VersionBin("8.3.30"), "composer"), "--version")
 	cmd.Dir = t.TempDir()

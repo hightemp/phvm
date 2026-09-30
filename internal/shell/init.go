@@ -73,7 +73,7 @@ func posixInit(sh Shell, root string, override bool) string {
 		completionSetup = `# Cobra's generated zsh completion needs compdef.
 if ! (( $+functions[compdef] )); then
     autoload -Uz compinit
-    compinit -D
+    compinit -D -i
 fi
 `
 	}

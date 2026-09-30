@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -207,7 +208,11 @@ func TestAtomicWriteFile(t *testing.T) {
 	if err != nil {
 		t.Errorf("Stat() error = %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS == "windows" {
+		if info.Mode().Perm()&0200 == 0 {
+			t.Errorf("File is not writable on Windows: %o", info.Mode().Perm())
+		}
+	} else if info.Mode().Perm() != 0644 {
 		t.Errorf("File permissions = %o, want 0644", info.Mode().Perm())
 	}
 }

@@ -92,6 +92,42 @@ func TestInitZshAndFishRuntime(t *testing.T) {
 	}
 }
 
+func TestInitZshNonInteractiveIgnoresInsecureCompletionDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Zsh runtime")
+	}
+	program, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh unavailable")
+	}
+	withoutConfigEnv(t)
+	bin := buildTestCLI(t)
+	root := filepath.Join(t.TempDir(), "managed")
+	generate := exec.Command(bin, "--phvm-dir", root, "init", "zsh")
+	generate.Env = initEnvironment("")
+	script, err := generate.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate zsh init: %v\n%s", err, script)
+	}
+	scriptFile := filepath.Join(t.TempDir(), "init.zsh")
+	if err := os.WriteFile(scriptFile, script, 0600); err != nil {
+		t.Fatal(err)
+	}
+	insecure := filepath.Join(t.TempDir(), "insecure-functions")
+	if err := os.Mkdir(insecure, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(insecure, 0777); err != nil {
+		t.Fatal(err)
+	}
+	check := exec.Command(program, "-f", "-c", `if [[ -n $PHVM_TEST_ZSH_MODULE_DIR ]]; then module_path=("$PHVM_TEST_ZSH_MODULE_DIR" $module_path); fi; fpath+=("$1"); source "$2"; (( $+functions[compdef] )) || exit 9; print -r -- "$PHVM_DIR"`, "zsh", insecure, scriptFile)
+	check.Env = initEnvironment("")
+	out, err := check.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != root {
+		t.Errorf("noninteractive zsh init: %v, output=%q, want root %q", err, out, root)
+	}
+}
+
 func TestInitPowerShellRuntime(t *testing.T) {
 	program, err := exec.LookPath("pwsh")
 	if err != nil {

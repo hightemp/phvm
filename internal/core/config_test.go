@@ -39,7 +39,8 @@ func TestREADMEConfigurationExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, section, ok := strings.Cut(string(data), "\n## Configuration\n")
+	readme := strings.ReplaceAll(string(data), "\r\n", "\n")
+	_, section, ok := strings.Cut(readme, "\n## Configuration\n")
 	if !ok {
 		t.Fatal("README Configuration section missing")
 	}

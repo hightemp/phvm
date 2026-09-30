@@ -26,11 +26,13 @@ func (p *Paths) LockState(ctx context.Context) (context.Context, func() error, e
 		return ctx, nil, err
 	}
 	defer root.Close()
-	key, err := filepath.EvalSymlinks(p.Root)
+	// Make the root absolute before resolving symlinks. With a relative PHVM_DIR,
+	// a symlinked working-directory parent otherwise gives nested locks different keys.
+	key, err := filepath.Abs(p.Root)
 	if err != nil {
 		return ctx, nil, err
 	}
-	key, err = filepath.Abs(key)
+	key, err = filepath.EvalSymlinks(key)
 	if err != nil {
 		return ctx, nil, err
 	}

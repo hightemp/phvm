@@ -46,6 +46,9 @@ func OpenScopedDir(base, path string, create bool) (*os.Root, error) {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("managed directory cannot be a symlink: %s", prefix)
 		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("managed directory is not a directory: %s", prefix)
+		}
 	}
 	if create {
 		if err := root.MkdirAll(rel, 0755); err != nil {

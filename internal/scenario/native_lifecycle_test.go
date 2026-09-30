@@ -83,16 +83,40 @@ func TestScenarioNativeComposerPECLAndIniLifecycle(t *testing.T) {
 	config := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n--prefix) echo %s;;\n--extension-dir) echo %s;;\n*) exec %s \"$@\";;\nesac\n", literal(p.VersionDir(version)), literal(extDir), literal(tools["php-config"]))
 	write(filepath.Join(p.VersionBin(version), "php-config"), config, 0755)
 	phpINI := "memory_limit=256M\ndate.timezone=UTC\n"
-	if nativeOutput(ctx, t, tools["php"], "-n", "-r", `echo extension_loaded('Phar') ? 'yes' : 'no';`) == "no" {
-		sharedPhar := filepath.Join(nativeOutput(ctx, t, tools["php-config"], "--extension-dir"), "phar.so")
-		if info, err := os.Stat(sharedPhar); err != nil || !info.Mode().IsRegular() {
-			t.Fatalf("Composer requires Phar, but PHP has neither built-in nor shared Phar at %s: %v", sharedPhar, err)
+	moduleGroups := [][]string{{"Phar"}, {"iconv", "mbstring"}}
+	available := func(php string, modules []string, args ...string) bool {
+		t.Helper()
+		for _, module := range modules {
+			code := fmt.Sprintf("echo extension_loaded('%s') ? 'yes' : 'no';", module)
+			if nativeOutput(ctx, t, php, append(args, "-r", code)...) == "yes" {
+				return true
+			}
 		}
-		phpINI += "extension=" + sharedPhar + "\n"
+		return false
+	}
+	extensionDir := nativeOutput(ctx, t, tools["php-config"], "--extension-dir")
+	for _, modules := range moduleGroups {
+		if available(tools["php"], modules, "-n") {
+			continue
+		}
+		loaded := false
+		for _, module := range modules {
+			shared := filepath.Join(extensionDir, strings.ToLower(module)+".so")
+			if info, err := os.Stat(shared); err == nil && info.Mode().IsRegular() {
+				phpINI += "extension=" + shared + "\n"
+				loaded = true
+				break
+			}
+		}
+		if !loaded {
+			t.Fatalf("Composer requires %s, but no built-in or shared module is available in %s", strings.Join(modules, " or "), extensionDir)
+		}
 	}
 	write(p.VersionPhpIni(version), phpINI, 0600)
-	if loaded := nativeOutput(ctx, t, filepath.Join(p.VersionBin(version), core.PHPBinary()), "-r", `echo extension_loaded('Phar') ? 'yes' : 'no';`); loaded != "yes" {
-		t.Fatalf("isolated PHP must load Phar for Composer: %s", loaded)
+	for _, modules := range moduleGroups {
+		if !available(filepath.Join(p.VersionBin(version), core.PHPBinary()), modules) {
+			t.Fatalf("isolated PHP must load %s for Composer", strings.Join(modules, " or "))
+		}
 	}
 	if err := core.NewCurrentManager(p).Set(version); err != nil {
 		t.Fatal(err)

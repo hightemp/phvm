@@ -2,6 +2,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import tarfile
@@ -24,7 +25,8 @@ class InstallerIntegrityTests(unittest.TestCase):
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b"previous binary")
             binary.chmod(0o755)
-            asset = "phvm_1.2.3_windows_amd64.zip" if powershell else "phvm_1.2.3_linux_amd64.tar.gz"
+            architecture = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+            asset = f"phvm_1.2.3_windows_{architecture}.zip" if powershell else "phvm_1.2.3_linux_amd64.tar.gz"
             archive = root / asset
             if powershell:
                 with zipfile.ZipFile(archive, "w") as out:

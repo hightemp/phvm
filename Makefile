@@ -14,7 +14,7 @@ GORELEASER_VERSION := $(shell python3 scripts/tool_version.py goreleaser)
 ACTIONLINT_VERSION := $(shell python3 scripts/tool_version.py actionlint)
 GORELEASER := $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
-.PHONY: all build build-all clean test test-release test-installers test-checks test-scenarios test-runtime-scenarios test-native-scenarios test-native-build release release-check release-package-check release-config-check lint fmt vet verify security security-baseline govulncheck gosec install uninstall help
+.PHONY: all build clean test test-release test-installers test-checks test-scenarios test-runtime-scenarios test-native-scenarios test-native-build release release-check release-package-check release-config-check lint fmt vet verify security security-baseline govulncheck gosec install uninstall help
 
 # Default target
 all: lint test build
@@ -23,16 +23,6 @@ all: lint test build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/phvm
-
-# Build for all platforms
-build-all:
-	@echo "Building for all platforms..."
-	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_linux_amd64 ./cmd/phvm
-	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_linux_arm64 ./cmd/phvm
-	GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_darwin_amd64 ./cmd/phvm
-	GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_darwin_arm64 ./cmd/phvm
-	GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_windows_amd64.exe ./cmd/phvm
-	GOOS=windows GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o dist/$(BINARY_NAME)_windows_arm64.exe ./cmd/phvm
 
 # Clean build artifacts
 clean:
@@ -184,7 +174,6 @@ help:
 	@echo "phvm Makefile targets:"
 	@echo ""
 	@echo "  build          Build the binary"
-	@echo "  build-all      Build for all platforms"
 	@echo "  clean          Remove build artifacts"
 	@echo "  test           Run tests"
 	@echo "  test-release   Test release automation with local Git repositories"

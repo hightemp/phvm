@@ -11,7 +11,7 @@ phvm is a cross-platform PHP version manager written in Go 1.27.1. The required 
 ```bash
 # Build
 make build                    # Build the binary
-make build-all                # Build for all platforms (linux/darwin/windows, amd64/arm64)
+make release-package-check    # Build and check six release archives without publishing
 make release-check            # Preflight, snapshot packaging and artifact smoke; no commit/tag/push
 
 # Run without building

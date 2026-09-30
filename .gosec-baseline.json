@@ -2,15 +2,6 @@
   "schema": 1,
   "findings": [
     {
-      "file": "internal/deps/deps.go",
-      "rule": "G306",
-      "code": "\t\tnewContent := strings.ReplaceAll(string(content), \"-lssl\", libssl)\n\t\tif err := os.WriteFile(libsslPC, []byte(newContent), 0644); err != nil {\n\t\t\treturn err",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Expect WriteFile permissions to be 0600 or less",
-      "fingerprint": "0481b3f68896b00a7e5bd44bdadafdd7a92ae9f65071e1822107d8d76c411628"
-    },
-    {
       "file": "internal/fsutil/symlink.go",
       "rule": "G301",
       "code": "\tdir := filepath.Dir(link)\n\tif err := os.MkdirAll(dir, 0755); err != nil {\n\t\treturn fmt.Errorf(\"create parent directory: %w\", err)",
@@ -38,42 +29,6 @@
       "fingerprint": "1dc91cb68e5dad3455df0067082008312c55f20e1717ab8b87aced6c9cf8455a"
     },
     {
-      "file": "internal/deps/deps.go",
-      "rule": "G304",
-      "code": "\n\tcontent, err := os.ReadFile(pcFile)\n\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "29a2ba87204329cdf3073b10e6b4450bc1fb4d37d08e87460bd81238f8dc8e14"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G703",
-      "code": "\n\treturn os.WriteFile(pcFile, []byte(newContent), 0644)\n}",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "details": "Path traversal via taint analysis",
-      "fingerprint": "31586f6b901f00ab883d273d8e6468943eff5ef3e879f0a742b0949ee47c8124"
-    },
-    {
-      "file": "internal/fsutil/atomic.go",
-      "rule": "G104",
-      "code": "\t\tif tmpFile != nil {\n\t\t\ttmpFile.Close()\n\t\t\tos.Remove(tmpPath)",
-      "severity": "LOW",
-      "confidence": "HIGH",
-      "details": "Errors unhandled",
-      "fingerprint": "34e716724425434e8b296a773e55ecbc4644eb4f7c31a01117e486edf1a653fb"
-    },
-    {
-      "file": "internal/fsutil/atomic.go",
-      "rule": "G104",
-      "code": "\t\tif tmpFile != nil {\n\t\t\ttmpFile.Close()\n\t\t\tos.Remove(tmpPath)",
-      "severity": "LOW",
-      "confidence": "HIGH",
-      "details": "Errors unhandled",
-      "fingerprint": "34e716724425434e8b296a773e55ecbc4644eb4f7c31a01117e486edf1a653fb"
-    },
-    {
       "file": "internal/remote/pecl_archive.go",
       "rule": "G501",
       "code": "\t\"context\"\n\t\"crypto/md5\"\n\t\"encoding/hex\"",
@@ -99,15 +54,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "442e6addafdc3b7d9f01a2895ec141a29655158d1e84c8bc824bd2151e294ee6"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G306",
-      "code": "\n\treturn os.WriteFile(pcFile, []byte(newContent), 0644)\n}",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Expect WriteFile permissions to be 0600 or less",
-      "fingerprint": "46e82892f6d5c461b28759458e2de8ce7bff5086ddafe9064b0967779eb7ca68"
     },
     {
       "file": "internal/fsutil/lock.go",
@@ -146,15 +92,6 @@
       "fingerprint": "513f51f90e2e34ea9aa86e8e106b0437c89998490f1ba04a57c82eb4d83ac432"
     },
     {
-      "file": "internal/cli/install.go",
-      "rule": "G304",
-      "code": "\tlogPath := paths.LogFile(\"install-\" + version)\n\tlogFile, err := os.Create(logPath)\n\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "58867c1194ad9d9707221619bceb01d9cef1ad60df3275ab1a919bd9c1b6b7e1"
-    },
-    {
       "file": "internal/deps/deps.go",
       "rule": "G104",
       "code": "\t// Cleanup source\n\tos.RemoveAll(sourceDir)\n",
@@ -162,33 +99,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "6261fe3bb2227952c85ad97c461c57b63d0fa510b4f5e755f3e8b35c38f40df5"
-    },
-    {
-      "file": "internal/remote/verify.go",
-      "rule": "G304",
-      "code": "func (v *Verifier) ComputeSHA256(filePath string) (string, error) {\n\tf, err := os.Open(filePath)\n\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "65246df1141b70552b4fa766ef0779899fe9da75ea243f1900e8e712b1fe161c"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G703",
-      "code": "\t\tnewContent := strings.ReplaceAll(string(content), \"-lssl\", libssl)\n\t\tif err := os.WriteFile(libsslPC, []byte(newContent), 0644); err != nil {\n\t\t\treturn err",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "details": "Path traversal via taint analysis",
-      "fingerprint": "71673e3103eb09d52dddcbace50cbf5d3ea7ce5db945631a4a7855939c7849f8"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G306",
-      "code": "\t\tnewContent := strings.ReplaceAll(string(content), \"-lcrypto\", libcrypto+\" -ldl -lpthread\")\n\t\tif err := os.WriteFile(libcryptoPC, []byte(newContent), 0644); err != nil {\n\t\t\treturn err",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Expect WriteFile permissions to be 0600 or less",
-      "fingerprint": "734b48803b652b5fa6fc5d2308db5d9016a68744c40fd9de05e2e9ee55ca8821"
     },
     {
       "file": "internal/fsutil/lock.go",
@@ -209,15 +119,6 @@
       "fingerprint": "78c131bb86684fa0b3ecb2b8ae570d3d760c85473b1a151e88994ee96c3421c7"
     },
     {
-      "file": "internal/build/php.go",
-      "rule": "G304",
-      "code": "\tmakefilePath := filepath.Join(buildDir, \"Makefile\")\n\tcontent, err := os.ReadFile(makefilePath)\n\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "81c66d68b89a8fd72d200a424dd3f40f74ce20f27f8c0053ff79016c3dd15339"
-    },
-    {
       "file": "internal/fsutil/symlink.go",
       "rule": "G104",
       "code": "\tif err := os.Rename(tmpLink, link); err != nil {\n\t\tos.Remove(tmpLink) // Cleanup on failure\n\t\treturn fmt.Errorf(\"rename symlink: %w\", err)",
@@ -225,15 +126,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "83d7ea08b93502c6db3dd806d09548450c42df7c9ae36705c17ef433b56c9cae"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G703",
-      "code": "\t\tnewContent := strings.ReplaceAll(string(content), \"-lcrypto\", libcrypto+\" -ldl -lpthread\")\n\t\tif err := os.WriteFile(libcryptoPC, []byte(newContent), 0644); err != nil {\n\t\t\treturn err",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "details": "Path traversal via taint analysis",
-      "fingerprint": "881279633807986bbbe49017f281e6366ff1987185699c2b8cd4da44bd7cbb00"
     },
     {
       "file": "internal/remote/pecl_archive.go",
@@ -252,15 +144,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "a2d00fe2267a150bc178e90387166314bed3e58d4163524d535b73758cbaa08f"
-    },
-    {
-      "file": "internal/build/php.go",
-      "rule": "G306",
-      "code": "\n\treturn os.WriteFile(makefilePath, []byte(updated), 0644)\n}",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Expect WriteFile permissions to be 0600 or less",
-      "fingerprint": "a9292062e0b42d712ac1b7f6b46c2b3fa7a3f6971011cec0fd47e78f9564192c"
     },
     {
       "file": "internal/fsutil/atomic.go",
@@ -290,42 +173,6 @@
       "fingerprint": "c5c152d9dd6a2425f84c319b0ef1e32a7aa0cafcd84df7f2719bd198f11ad413"
     },
     {
-      "file": "internal/fsutil/atomic.go",
-      "rule": "G104",
-      "code": "\t\t\ttmpFile.Close()\n\t\t\tos.Remove(tmpPath)\n\t\t}",
-      "severity": "LOW",
-      "confidence": "HIGH",
-      "details": "Errors unhandled",
-      "fingerprint": "c67745e62f748582569497270c24294bfcbabc1cc13a22e2018cd1b1638d13ea"
-    },
-    {
-      "file": "internal/fsutil/atomic.go",
-      "rule": "G104",
-      "code": "\t\t\ttmpFile.Close()\n\t\t\tos.Remove(tmpPath)\n\t\t}",
-      "severity": "LOW",
-      "confidence": "HIGH",
-      "details": "Errors unhandled",
-      "fingerprint": "c67745e62f748582569497270c24294bfcbabc1cc13a22e2018cd1b1638d13ea"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G304",
-      "code": "\tif fsutil.Exists(libsslPC) {\n\t\tcontent, err := os.ReadFile(libsslPC)\n\t\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "c6ebb6f39d83c58ced95c1e2fa060def8754d5a406aefba08a1ab5cdc63a7d34"
-    },
-    {
-      "file": "internal/deps/deps.go",
-      "rule": "G304",
-      "code": "\tif fsutil.Exists(libcryptoPC) {\n\t\tcontent, err := os.ReadFile(libcryptoPC)\n\t\tif err != nil {",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Potential file inclusion via variable",
-      "fingerprint": "c79c046e29e3ee0681e94e7404bcd5fc7ba14ebb1220050cddff52e3675abd0b"
-    },
-    {
       "file": "internal/fsutil/lock.go",
       "rule": "G104",
       "code": "\terr := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)\n\tl.file.Close()\n\tl.file = nil",
@@ -342,15 +189,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "d396e4d52b0ea7a2fd5a6adc5a408287c8965da033b2be87c9f7f3996882865a"
-    },
-    {
-      "file": "internal/fsutil/atomic.go",
-      "rule": "G301",
-      "code": "\tdir := filepath.Dir(path)\n\tif err := os.MkdirAll(dir, 0755); err != nil {\n\t\treturn fmt.Errorf(\"create directory: %w\", err)",
-      "severity": "MEDIUM",
-      "confidence": "HIGH",
-      "details": "Expect directory permissions to be 0750 or less",
-      "fingerprint": "d4dc0f348e5a807fffa3de20bb86f8c8d9ba14d723c33f892d28df9fd20919be"
     },
     {
       "file": "internal/fsutil/lock.go",
@@ -387,15 +225,6 @@
       "confidence": "HIGH",
       "details": "Errors unhandled",
       "fingerprint": "f0f05d345893cc333488c133662eed5d17f39c04b4be2ea776cb3b8b898cd4f4"
-    },
-    {
-      "file": "internal/build/php.go",
-      "rule": "G703",
-      "code": "\n\treturn os.WriteFile(makefilePath, []byte(updated), 0644)\n}",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "details": "Path traversal via taint analysis",
-      "fingerprint": "f3a9b86f93e65162b7261e3302a40ea56813c70328a9933d708d968e4fd0a824"
     },
     {
       "file": "internal/core/config.go",

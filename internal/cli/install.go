@@ -144,7 +144,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Open log file
 	logPath := paths.LogFile("install-" + version)
-	logFile, err := os.Create(logPath)
+	logFile, err := openInstallLog(paths, version)
 	if err != nil {
 		log.Warn("Failed to create log file: %v", err)
 	} else {
@@ -192,6 +192,27 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Suppress unused variable warnings
 	_ = release
 	return nil
+}
+
+func openInstallLog(paths *core.Paths, version string) (*os.File, error) {
+	version, err := core.NormalizeInstalledVersion(version)
+	if err != nil {
+		return nil, err
+	}
+	root, err := paths.OpenDataDir(paths.Logs, false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	name := "install-" + version + ".log"
+	if info, err := root.Lstat(name); err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("install log is not a regular file")
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	return root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 }
 
 var uninstallCmd = &cobra.Command{

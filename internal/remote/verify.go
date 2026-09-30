@@ -69,14 +69,28 @@ func (v *Verifier) VerifySHA256(filePath, expected string) error {
 
 // ComputeSHA256 computes the SHA256 checksum of a file.
 func (v *Verifier) ComputeSHA256(filePath string) (string, error) {
-	f, err := os.Open(filePath)
+	root, err := os.OpenRoot(filepath.Dir(filePath))
+	if err != nil {
+		return "", fmt.Errorf("open file directory: %w", err)
+	}
+	defer root.Close()
+	name := filepath.Base(filePath)
+	info, err := root.Lstat(name)
+	if err != nil {
+		return "", fmt.Errorf("stat file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("file is not a regular file")
+	}
+	f, err := root.Open(name)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
 
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	_, copyErr := io.Copy(h, f)
+	closeErr := f.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
 		return "", fmt.Errorf("compute hash: %w", err)
 	}
 

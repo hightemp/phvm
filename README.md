@@ -677,7 +677,7 @@ tools and their dependencies to the Go module cache.
 `make gosec` remains strict and returns a nonzero status for any findings.
 CI and release preflight use `make security-baseline`: the full report is kept
 in `reports/gosec.json`, while new findings block the command. The reviewed
-`.gosec-baseline.json` currently contains 45 existing findings; it does not
+`.gosec-baseline.json` lists the remaining reviewed findings; it does not
 declare them fixed. Identity includes rule, file, code, severity and confidence.
 Moving source line numbers alone does not add an exception. Missing or invalid
 scanner reports and analysis errors fail the check. Refreshing the baseline

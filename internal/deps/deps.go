@@ -297,12 +297,12 @@ func (m *DepsManager) ensureDep(ctx context.Context, dep Dependency, depsDir str
 	// Post-install: fix pkg-config files
 	if dep.Name == "openssl" {
 		if err := m.fixOpenSSLPkgConfig(depsDir); err != nil {
-			log.Warn("Failed to fix openssl pkg-config: %v", err)
+			return fmt.Errorf("fix openssl pkg-config: %w", err)
 		}
 	}
 	if dep.Name == "curl" {
 		if err := m.fixCurlPkgConfig(depsDir); err != nil {
-			log.Warn("Failed to fix curl pkg-config: %v", err)
+			return fmt.Errorf("fix curl pkg-config: %w", err)
 		}
 	}
 
@@ -435,58 +435,63 @@ func (m *DepsManager) fixOpenSSLPkgConfig(depsDir string) error {
 	libssl := filepath.Join(opensslLibDir, "libssl.a")
 	libcrypto := filepath.Join(opensslLibDir, "libcrypto.a")
 
-	// Fix libssl.pc
 	libsslPC := filepath.Join(opensslLibDir, "pkgconfig", "libssl.pc")
-	if fsutil.Exists(libsslPC) {
-		content, err := os.ReadFile(libsslPC)
-		if err != nil {
-			return err
-		}
-		newContent := strings.ReplaceAll(string(content), "-lssl", libssl)
-		if err := os.WriteFile(libsslPC, []byte(newContent), 0644); err != nil {
-			return err
-		}
+	if err := m.rewritePkgConfig(libsslPC, func(content string) string {
+		return strings.ReplaceAll(content, "-lssl", libssl)
+	}); err != nil {
+		return err
 	}
 
-	// Fix libcrypto.pc
 	libcryptoPC := filepath.Join(opensslLibDir, "pkgconfig", "libcrypto.pc")
-	if fsutil.Exists(libcryptoPC) {
-		content, err := os.ReadFile(libcryptoPC)
-		if err != nil {
-			return err
-		}
-		newContent := strings.ReplaceAll(string(content), "-lcrypto", libcrypto+" -ldl -lpthread")
-		if err := os.WriteFile(libcryptoPC, []byte(newContent), 0644); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return m.rewritePkgConfig(libcryptoPC, func(content string) string {
+		return strings.ReplaceAll(content, "-lcrypto", libcrypto+" -ldl -lpthread")
+	})
 }
 
 // fixCurlPkgConfig fixes libcurl.pc to use absolute paths for OpenSSL.
 func (m *DepsManager) fixCurlPkgConfig(depsDir string) error {
 	pcFile := filepath.Join(depsDir, "curl", "lib", "pkgconfig", "libcurl.pc")
-	if !fsutil.Exists(pcFile) {
-		return nil
-	}
-
-	content, err := os.ReadFile(pcFile)
-	if err != nil {
-		return err
-	}
-
 	opensslLibDir := filepath.Join(depsDir, "openssl", "lib")
 	libssl := filepath.Join(opensslLibDir, "libssl.a")
 	libcrypto := filepath.Join(opensslLibDir, "libcrypto.a")
 
 	// Replace -lssl -lcrypto with absolute paths to static libraries
-	newContent := string(content)
-	newContent = strings.ReplaceAll(newContent, "-lssl -lcrypto", libssl+" "+libcrypto+" -ldl -lpthread")
-	newContent = strings.ReplaceAll(newContent, "-lssl", libssl)
-	newContent = strings.ReplaceAll(newContent, "-lcrypto", libcrypto)
+	return m.rewritePkgConfig(pcFile, func(content string) string {
+		updated := strings.ReplaceAll(content, "-lssl -lcrypto", libssl+" "+libcrypto+" -ldl -lpthread")
+		updated = strings.ReplaceAll(updated, "-lssl", libssl)
+		return strings.ReplaceAll(updated, "-lcrypto", libcrypto)
+	})
+}
 
-	return os.WriteFile(pcFile, []byte(newContent), 0644)
+func (m *DepsManager) rewritePkgConfig(path string, rewrite func(string) string) error {
+	root, err := m.paths.OpenDataDir(filepath.Dir(path), false)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	name := filepath.Base(path)
+	info, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("pkg-config file %s is not a regular file", name)
+	}
+	content, err := root.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	updated := rewrite(string(content))
+	if updated == string(content) {
+		return nil
+	}
+	return fsutil.AtomicWriteRoot(root, name, []byte(updated), info.Mode().Perm())
 }
 
 // GetBuildEnv returns environment variables for building PHP with dependencies.

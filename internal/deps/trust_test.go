@@ -23,12 +23,16 @@ import (
 )
 
 func dependencyArchive(t *testing.T, version, sentinel string) []byte {
+	return dependencyArchiveNamed(t, "fixture", version, sentinel)
+}
+
+func dependencyArchiveNamed(t *testing.T, name, version, sentinel string) []byte {
 	t.Helper()
 	script := "#!/bin/sh\nprefix=${1#--prefix=}\nprintf executed >> '" + sentinel + "'\ncat > Makefile <<EOF\nall:\n\t@true\ninstall:\n\tmkdir -p '$prefix'\n\techo library > '$prefix/library'\nEOF\n"
 	var out bytes.Buffer
 	gz := gzip.NewWriter(&out)
 	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: "fixture-" + version + "/configure", Mode: 0755, Size: int64(len(script))}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: name + "-" + version + "/configure", Mode: 0755, Size: int64(len(script))}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write([]byte(script)); err != nil {

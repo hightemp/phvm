@@ -172,7 +172,7 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 		return fmt.Errorf("configure: %w", err)
 	}
 	if deps.NeedsDeps(version) {
-		if err := stripSystemInclude(buildDir); err != nil {
+		if err := stripSystemInclude(b.paths, buildDir); err != nil {
 			return fmt.Errorf("patch makefile includes: %w", err)
 		}
 	}
@@ -416,9 +416,20 @@ func (w *configureOutputTail) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func stripSystemInclude(buildDir string) error {
-	makefilePath := filepath.Join(buildDir, "Makefile")
-	content, err := os.ReadFile(makefilePath)
+func stripSystemInclude(paths *core.Paths, buildDir string) error {
+	root, err := paths.OpenDataDir(buildDir, false)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Lstat("Makefile")
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("makefile is not a regular file")
+	}
+	content, err := root.ReadFile("Makefile")
 	if err != nil {
 		return err
 	}
@@ -429,7 +440,7 @@ func stripSystemInclude(buildDir string) error {
 		return nil
 	}
 
-	return os.WriteFile(makefilePath, []byte(updated), 0644)
+	return fsutil.AtomicWriteRoot(root, "Makefile", []byte(updated), info.Mode().Perm())
 }
 
 // make runs make.
@@ -507,10 +518,12 @@ func (b *Builder) postInstall(ctx context.Context, version, installDir string) e
 	iniPath := filepath.Join(etcDir, "php.ini")
 	if !fsutil.Exists(iniPath) {
 		// Copy php.ini-production from source if available, otherwise create empty
-		sourceIni := b.paths.SourcePath(version)
-		prodIni := filepath.Join(sourceIni, "php.ini-production")
-		if fsutil.Exists(prodIni) {
-			if err := fsutil.AtomicCopyFile(prodIni, iniPath, 0644); err != nil {
+		productionIni, found, err := b.readProductionIni(version)
+		if err != nil {
+			return fmt.Errorf("read php.ini-production: %w", err)
+		}
+		if found {
+			if err := fsutil.AtomicWriteFile(iniPath, productionIni, 0644); err != nil {
 				return fmt.Errorf("copy php.ini-production: %w", err)
 			}
 		} else {
@@ -545,6 +558,30 @@ opcache.enable_cli=0
 	}
 
 	return nil
+}
+
+func (b *Builder) readProductionIni(version string) ([]byte, bool, error) {
+	root, err := b.paths.OpenDataDir(b.paths.SourcePath(version), false)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	defer root.Close()
+	const name = "php.ini-production"
+	info, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("php.ini-production is not a regular file")
+	}
+	data, err := root.ReadFile(name)
+	return data, err == nil, err
 }
 
 // SaveMetadata saves build metadata.

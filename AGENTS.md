@@ -54,6 +54,10 @@ make test                     # Runs: go test -v -race -cover ./...
 make test-release             # Isolated Git release lifecycle
 make test-installers          # Installer integrity and publication
 make test-checks              # Security baseline and release archive regressions
+make test-scenarios           # Required fixture lifecycles; skipped/missing tests fail
+make test-runtime-scenarios   # Real PHP with synthetic PHAR/native module fixtures
+make test-native-scenarios    # Official Composer/PECL; network and Linux PHP SDK required
+make test-native-build        # Real PHP source build; supplied archive/version/SHA256
 
 # Run tests with coverage report
 make test-coverage            # Generates coverage.html
@@ -69,6 +73,13 @@ go test -v -run TestParseVersion ./internal/core/
 go test -v -run TestAtomicWriteFile ./internal/fsutil/
 go test -v -run TestConfDManager/Create ./internal/ini/
 ```
+
+Scenario definitions and states are in `scripts/scenarios.json`; the coverage
+matrix and prerequisites are in `docs/scenario-matrix.md`. Execution evidence is
+written to ignored `reports/scenarios-*.json` and `.jsonl`. Fixture results,
+real runtime fixtures, upstream smoke and cross-compilation are distinct proof
+levels. Ordinary `make test` may skip optional native tests; the scenario runner
+rejects skips within its selected required profile.
 
 ## Code Style Guidelines
 

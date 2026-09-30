@@ -1,0 +1,53 @@
+name: Lifecycle scenarios
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    name: Required deterministic lifecycles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make test-scenarios
+      - name: Preserve execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-scenarios
+          path: reports/scenarios-fixture-*
+
+  native:
+    name: Real PHP Composer and PECL lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Provision SDK on the isolated runner
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.3'
+          extensions: phar
+          coverage: none
+          tools: none
+      - run: make test-runtime-scenarios
+      - run: make test-native-scenarios
+      - name: Preserve execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-scenarios
+          path: |
+            reports/scenarios-runtime-fixture-*
+            reports/scenarios-native-*

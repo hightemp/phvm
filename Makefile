@@ -14,7 +14,7 @@ GORELEASER_VERSION := $(shell python3 scripts/tool_version.py goreleaser)
 ACTIONLINT_VERSION := $(shell python3 scripts/tool_version.py actionlint)
 GORELEASER := $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
-.PHONY: all build build-all clean test test-release test-installers test-checks release release-check release-package-check release-config-check lint fmt vet verify security security-baseline govulncheck gosec install uninstall help
+.PHONY: all build build-all clean test test-release test-installers test-checks test-scenarios test-runtime-scenarios test-native-scenarios test-native-build release release-check release-package-check release-config-check lint fmt vet verify security security-baseline govulncheck gosec install uninstall help
 
 # Default target
 all: lint test build
@@ -56,6 +56,20 @@ test-installers:
 test-checks:
 	python3 -B -m unittest discover -s scripts/tests -p 'test_security_baseline.py' -v
 	python3 -B -m unittest discover -s scripts/tests -p 'test_artifacts.py' -v
+	python3 -B -m unittest discover -s scripts/tests -p 'test_scenario_report.py' -v
+
+test-scenarios:
+	python3 scripts/scenario_report.py --profile fixture
+
+test-runtime-scenarios:
+	python3 scripts/scenario_report.py --profile runtime-fixture
+
+# Explicit upstream smoke; network and an existing real PHP SDK are required.
+test-native-scenarios:
+	python3 scripts/scenario_report.py --profile native
+
+test-native-build:
+	python3 scripts/scenario_report.py --profile native-build
 
 # Read-only release preflight; snapshot artifacts are kept in ignored dist/.
 release-check:
@@ -63,6 +77,7 @@ release-check:
 	python3 scripts/check_release_version.py
 	$(MAKE) release-config-check
 	$(MAKE) verify vet lint test govulncheck security-baseline test-release test-installers test-checks
+	$(MAKE) test-scenarios
 	$(MAKE) release-package-check
 
 release-config-check:
@@ -179,6 +194,10 @@ help:
 	@echo "  release-check  Validate source, security, workflows and six release archives without publishing"
 	@echo "  release-package-check Build and smoke-test GoReleaser snapshot artifacts"
 	@echo "  test-checks    Test archive and source security gates"
+	@echo "  test-scenarios Run required fixture lifecycle scenarios and write evidence JSON"
+	@echo "  test-runtime-scenarios Run real PHP with synthetic PHAR/C module fixtures"
+	@echo "  test-native-scenarios Run upstream Composer/PECL lifecycle with real PHP SDK"
+	@echo "  test-native-build Run isolated PHP source build using supplied archive/SHA256"
 	@echo "  lint           Run golangci-lint"
 	@echo "  fmt            Format code"
 	@echo "  vet            Vet code"

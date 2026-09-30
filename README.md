@@ -616,6 +616,31 @@ make lint
 make fmt
 ```
 
+### Lifecycle scenarios
+
+```bash
+# Deterministic HTTP, build-tool and failure fixtures
+make test-scenarios
+
+# Real PHP with synthetic PHAR and compiled module fixtures
+make test-runtime-scenarios
+
+# Official Composer and PECL redis: download, build, load and uninstall
+make test-native-scenarios
+```
+
+The native scenarios need Linux, network access, PHP with Phar, matching
+`php-config`/`phpize`, `cc`, `make` and `autoconf`. They borrow the existing SDK
+and use temporary installation roots. CI provisions the SDK on its runner and
+executes all three profiles on every PR and push. Ordinary `make test` runs the
+offline regressions and can skip tests whose native prerequisites are absent.
+
+The scenario runner rejects a skipped or missing required test, including
+skipped subtests. It writes the results, states and proof levels to
+`reports/scenarios-<profile>-<platform>.json`, with the original Go test events
+beside it in `.jsonl`. See the [scenario matrix](docs/scenario-matrix.md) for
+coverage, platform limits and the separate opt-in PHP source build.
+
 ### Security checks
 
 ```bash
@@ -690,6 +715,7 @@ make release-check
 
 This runs version/source checks, dependency verification, vet, lint, race tests,
 govulncheck, the gosec baseline, installer/release/checker regressions,
+required deterministic lifecycle scenarios,
 actionlint, GoReleaser schema validation, and snapshot packaging. The snapshot
 uses `VERSION` even before its tag exists. All six archives must match installer
 filenames, SHA256, executable format/architecture and embedded Go version flags;

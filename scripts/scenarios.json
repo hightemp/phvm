@@ -1,0 +1,39 @@
+{
+  "fixture": [
+    {"id":"php-cli-retry","package":"github.com/hightemp/phvm/internal/cli","test":"TestScenarioPHPFailureRetryAndUninstallLifecycle","mode":"fixture","platforms":["linux","darwin"],"states":["resolve/download/checksum/extract/configure/make/install failure","retry","current/which/ls","cache clear","uninstall"]},
+    {"id":"php-rollback","package":"github.com/hightemp/phvm/internal/build","test":"TestFailedPHPBuildPreservesPreviousInstallation","mode":"fixture","platforms":["linux","darwin"],"states":["configure/make/install/runtime/version/ABI/startup/metadata/ini failure","prior bytes/modes preserved"]},
+    {"id":"php-publication","package":"github.com/hightemp/phvm/internal/build","test":"TestSuccessfulPHPBuildPublishesMetadataAndPreservesUserFiles","mode":"fixture","platforms":["linux","darwin"],"states":["success","ready metadata","user files"]},
+    {"id":"cli-signal-retry","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIInterruptedInstallCleansUpAndCanRetry","mode":"fixture","platforms":["linux","darwin"],"states":["SIGINT/SIGTERM","descendant termination","cleanup","retry"]},
+    {"id":"interrupted-recovery","package":"github.com/hightemp/phvm/internal/core","test":"TestRecoverInterruptedPHPPublication","mode":"fixture","platforms":["linux","darwin","windows"],"states":["saved interrupted journal","recovery"]},
+    {"id":"installed-corruption","package":"github.com/hightemp/phvm/internal/core","test":"TestInstalledRejectsIncompleteOrCorruptPublicationState","mode":"fixture","platforms":["linux","darwin","windows"],"states":["staging/failed/wrong/corrupt metadata"]},
+    {"id":"download-concurrency","package":"github.com/hightemp/phvm/internal/remote","test":"TestConcurrentCacheDownloadsRecheckAfterWaiting","mode":"fixture","platforms":["linux","darwin","windows"],"states":["concurrent writers","cache reuse"]},
+    {"id":"download-failed-refresh","package":"github.com/hightemp/phvm/internal/remote","test":"TestFailedAndCancelledRefreshPreservesExistingFile","mode":"fixture","platforms":["linux","darwin","windows"],"states":["truncation","cancel","prior bytes"]},
+    {"id":"download-bad-cache","package":"github.com/hightemp/phvm/internal/remote","test":"TestCheckedDownloadBadCacheGetsOnlyOneReplacementAttempt","mode":"fixture","platforms":["linux","darwin","windows"],"states":["corrupt cache","bounded retry","cleanup"]},
+    {"id":"gpg-states","package":"github.com/hightemp/phvm/internal/remote","test":"TestVerifyGPGStates","mode":"fixture","platforms":["linux","darwin","windows"],"states":["valid/invalid/unavailable signature","strict/fallback"]},
+    {"id":"dependency-trust","package":"github.com/hightemp/phvm/internal/deps","test":"TestDependencyMarkerBindsVersionSourceAndArchiveHash","mode":"fixture","platforms":["linux","darwin"],"states":["success","version/source/hash change","corrupt marker/cache","rebuild"]},
+    {"id":"extension-publication","package":"github.com/hightemp/phvm/internal/ext","test":"TestInstallPublishesVerifiedArtifactAndUninstallRemovesIt","mode":"fixture","platforms":["linux","darwin"],"states":["publish","recorded ownership","uninstall"]},
+    {"id":"extension-stage-failure","package":"github.com/hightemp/phvm/internal/ext","test":"TestInstallRejectsUnusableArtifactBeforePublication","mode":"fixture","platforms":["linux","darwin"],"states":["missing/ambiguous/wrong/unloadable binary","no publication"]},
+    {"id":"extension-cancel","package":"github.com/hightemp/phvm/internal/ext","test":"TestCancelledExtensionProbePublishesNothing","mode":"fixture","platforms":["linux","darwin"],"states":["cancel","no mutation"]},
+    {"id":"extension-concurrency","package":"github.com/hightemp/phvm/internal/ext","test":"TestExtensionChangesWaitForStateLockAndRetainBothMetadataUpdates","mode":"fixture","platforms":["linux","darwin"],"states":["concurrent metadata changes","no lost update"]},
+    {"id":"pecl-trust-failure","package":"github.com/hightemp/phvm/internal/ext","test":"TestPECLTrustFailureNeverRunsPhpize","mode":"fixture","platforms":["linux","darwin"],"states":["metadata/size/checksum/bytes/truncation failure","bad cache retry","no unverified execution"]},
+    {"id":"ini-snapshot","package":"github.com/hightemp/phvm/internal/ini","test":"TestSavedProfileIsExactSnapshotAndResaveRemovesStaleFiles","mode":"fixture","platforms":["linux","darwin"],"states":["save/use/resave","stale removal"]},
+    {"id":"ini-rollback","package":"github.com/hightemp/phvm/internal/ini","test":"TestLateProfileValidationFailureRestoresConfiguration","mode":"fixture","platforms":["linux","darwin"],"states":["late failure","rollback"]},
+    {"id":"cli-shared-lock","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIStateCommandsWaitForSamePersistentLock","mode":"fixture","platforms":["linux","darwin"],"states":["separate CLI processes","install/remove/composer/ext/cache serialization"]},
+    {"id":"cli-error-streams","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIErrorsReturnOneAndUseStderr","mode":"fixture","platforms":["linux","darwin","windows"],"states":["missing/unsafe binary","argument/network errors","exit1/stderr"]}
+  ],
+  "runtime-fixture": [
+    {"id":"composer-real-php-update","package":"github.com/hightemp/phvm/internal/composer","test":"TestUpdateRunsVerifiedPHARWithRealPHP","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["real PHP","synthetic PHAR","update","shared launchers"]},
+    {"id":"composer-failures","package":"github.com/hightemp/phvm/internal/composer","test":"TestUpdateFailuresPreserveWorkingPHAR","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["HTTP/checksum/runtime/version failure","prior bytes"]},
+    {"id":"composer-cancel","package":"github.com/hightemp/phvm/internal/composer","test":"TestUpdateCancellationPreservesWorkingPHAR","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["cancel","prior bytes"]},
+    {"id":"composer-concurrency","package":"github.com/hightemp/phvm/internal/composer","test":"TestWaitingComposerUpdateRechecksVersionAndCannotDowngrade","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["concurrent update","stale downgrade rejected"]},
+    {"id":"ini-real-php","package":"github.com/hightemp/phvm/internal/ini","test":"TestProfileSnapshotAndInvalidStartupWithRealPHP","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["real startup/configuration","syntax/module failure","rollback"]},
+    {"id":"extension-real-abi","package":"github.com/hightemp/phvm/internal/ext","test":"TestInstallWithRealPHPArtifact","mode":"runtime-fixture","platforms":["linux"],"states":["native C fixture","valid/wrong ABI/module","dependency","uninstall"]}
+  ],
+  "native": [
+    {"id":"upstream-tools-lifecycle","package":"github.com/hightemp/phvm/internal/scenario","test":"TestScenarioNativeComposerPECLAndIniLifecycle","mode":"upstream-native","platforms":["linux"],"states":["real PHP SDK","real Composer download/install/update","real PECL configure/make","enabled/disabled/profile restore","cache clear","uninstall"]},
+    {"id":"upstream-pecl-channel","package":"github.com/hightemp/phvm/internal/remote","test":"TestNativePECLChannelArchiveValidation","mode":"upstream-native","platforms":["linux"],"states":["official channel metadata/archive","exact checksums","no build execution"]}
+  ],
+  "native-build": [
+    {"id":"php-source-build","package":"github.com/hightemp/phvm/internal/build","test":"TestNativePHPTransactionalBuild","mode":"upstream-native","platforms":["linux"],"states":["supplied pinned PHP archive","real configure/make/INSTALL_ROOT","runtime/SDK/ABI","ready publication"]}
+  ]
+}

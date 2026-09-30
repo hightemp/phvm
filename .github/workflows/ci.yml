@@ -52,6 +52,19 @@ jobs:
           name: source-security
           path: reports/gosec.json
 
+  shell-runtime:
+    name: Bash, Zsh and Fish initialization
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Provide shell runtimes on the isolated runner
+        run: sudo apt-get update && sudo apt-get install -y fish zsh
+      - name: Execute shell initialization regressions
+        run: go test -race -count=1 -run '^TestInit' ./internal/cli
+
   test:
     name: Test
     runs-on: ${{ matrix.os }}
@@ -86,6 +99,13 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: go test --% -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Require native PowerShell initialization
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { throw 'pwsh unavailable' }
+          go test --% -race -count=1 -run TestInitPowerShellRuntime ./internal/cli
 
       - name: Test release automation
         if: matrix.os == 'ubuntu-latest'

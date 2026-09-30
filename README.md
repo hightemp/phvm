@@ -64,6 +64,20 @@ eval "$(~/.phvm/bin/phvm init zsh)"
 Invoke-Expression (& ~/.phvm/bin/phvm init powershell)
 ```
 
+`init` uses the effective phvm root. If `PHVM_DIR` is already set, sourcing the
+script preserves it; an explicit `--phvm-dir` selects that root even when the
+environment contains another value. For example:
+
+```bash
+eval "$(phvm --phvm-dir '/path/with spaces' init bash)"
+```
+
+Reloading the script does not duplicate its `PATH` entries. Paths are quoted
+for the selected shell. Completions come from the CLI command tree; `use` and
+`uninstall` suggest installed versions, while `use` also suggests local aliases.
+`install` suggests `latest` and `stable`; enter a numeric branch or release
+directly. The generated script configures Zsh completion when needed.
+
 ### Basic Usage
 
 ```bash

@@ -42,8 +42,9 @@ Examples:
   phvm install latest
   phvm install 8 --profile minimal
   phvm install 8.3 --configure "--with-pdo-mysql"`,
-	Args: cobra.ExactArgs(1),
-	RunE: runInstall,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeInstallPHP,
+	RunE:              runInstall,
 }
 
 var (
@@ -194,9 +195,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 }
 
 var uninstallCmd = &cobra.Command{
-	Use:   "uninstall <version>",
-	Short: "Uninstall a PHP version",
-	Args:  cobra.ExactArgs(1),
+	Use:               "uninstall <version>",
+	Short:             "Uninstall a PHP version",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeUninstallPHP,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		version := args[0]
 		paths := GetPaths()

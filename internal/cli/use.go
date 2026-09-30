@@ -31,7 +31,8 @@ Examples:
   phvm use 8.3
   phvm use default
   phvm use latest`,
-	Args: cobra.ExactArgs(1),
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeInstalledPHP,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		versionArg := args[0]
 		paths := GetPaths()

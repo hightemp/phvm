@@ -139,7 +139,11 @@ func TestInitBashUsesEffectiveRootAndIsIdempotent(t *testing.T) {
 			if tc.want == "root" {
 				want = tc.root
 				if tc.generateDir != "" {
-					want = filepath.Join(tc.generateDir, tc.root)
+					parent, err := filepath.EvalSymlinks(tc.generateDir)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want = filepath.Join(parent, tc.root)
 				}
 			}
 			if lines[0] != want {

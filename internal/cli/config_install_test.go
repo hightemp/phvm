@@ -32,7 +32,15 @@ func TestInstallAppliesConfiguration(t *testing.T) {
 	}
 	withoutConfigEnv(t)
 	bin := buildTestCLI(t)
-	fakeBuildTools(t)
+	toolsDir := fakeBuildTools(t)
+	realMake, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeWrapper := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> \"$PHVM_TEST_MAKE_CAPTURE\"\nexec '%s' \"$@\"\n", strings.ReplaceAll(realMake, "'", "'\\''"))
+	if err := os.WriteFile(filepath.Join(toolsDir, "make"), []byte(makeWrapper), 0755); err != nil {
+		t.Fatal(err)
+	}
 	for _, tt := range []struct {
 		name                string
 		env                 map[string]string
@@ -58,8 +66,9 @@ func TestInstallAppliesConfiguration(t *testing.T) {
 			}
 			prefix := p.VersionDir("8.5.11")
 			php := filepath.Join(p.VersionBin("8.5.11"), core.PHPBinary())
-			capture := filepath.Join(p.Root, "makeflags")
-			script := phpConfigureFixture(p.VersionDir("8.5.11"), "8.5.11", capture)
+			capture := filepath.Join(p.Root, "make-args")
+			t.Setenv("PHVM_TEST_MAKE_CAPTURE", capture)
+			script := phpConfigureFixture(p.VersionDir("8.5.11"), "8.5.11", "")
 			var archive bytes.Buffer
 			gz := gzip.NewWriter(&archive)
 			tw := tar.NewWriter(gz)
@@ -138,15 +147,8 @@ func TestInstallAppliesConfiguration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(flags), "-j"+tt.jobs) && tt.jobs != "1" {
-				t.Errorf("jobs not applied: %s", flags)
-			}
-			if tt.jobs == "1" {
-				for _, field := range strings.Fields(string(flags)) {
-					if strings.HasPrefix(field, "-j") && field != "-j1" {
-						t.Errorf("explicit --jobs 1 was overridden: %s", flags)
-					}
-				}
+			if !strings.Contains("\n"+string(flags), "\n-j"+tt.jobs+"\n") {
+				t.Errorf("jobs not applied to make invocation: %s", flags)
 			}
 			if strings.Contains(string(out), "\x1b[") {
 				t.Errorf("color=false still produced ANSI: %s", out)

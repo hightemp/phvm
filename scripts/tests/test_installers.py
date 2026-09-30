@@ -121,7 +121,7 @@ else: shutil.copyfile(os.environ['PHVM_FIXTURE_CHECKSUMS' if checks else 'PHVM_F
                     env["PATH"] = str(tools)
                 cmd = ["bash", str(REPO / "scripts/install.sh")]
                 if downloader == "wget": cmd[0] = shutil.which("bash")
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=20)
+            result = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
             if case in ("valid", "latest", "https redirect", "relative redirect"):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(binary.read_bytes(), b"new binary")

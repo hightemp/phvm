@@ -82,7 +82,18 @@ func TestScenarioNativeComposerPECLAndIniLifecycle(t *testing.T) {
 	write(filepath.Join(p.VersionBin(version), "phpize"), "#!/bin/sh\nexec "+literal(tools["phpize"])+" \"$@\"\n", 0755)
 	config := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n--prefix) echo %s;;\n--extension-dir) echo %s;;\n*) exec %s \"$@\";;\nesac\n", literal(p.VersionDir(version)), literal(extDir), literal(tools["php-config"]))
 	write(filepath.Join(p.VersionBin(version), "php-config"), config, 0755)
-	write(p.VersionPhpIni(version), "memory_limit=256M\ndate.timezone=UTC\n", 0600)
+	phpINI := "memory_limit=256M\ndate.timezone=UTC\n"
+	if nativeOutput(ctx, t, tools["php"], "-n", "-r", `echo extension_loaded('Phar') ? 'yes' : 'no';`) == "no" {
+		sharedPhar := filepath.Join(nativeOutput(ctx, t, tools["php-config"], "--extension-dir"), "phar.so")
+		if info, err := os.Stat(sharedPhar); err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("Composer requires Phar, but PHP has neither built-in nor shared Phar at %s: %v", sharedPhar, err)
+		}
+		phpINI += "extension=" + sharedPhar + "\n"
+	}
+	write(p.VersionPhpIni(version), phpINI, 0600)
+	if loaded := nativeOutput(ctx, t, filepath.Join(p.VersionBin(version), core.PHPBinary()), "-r", `echo extension_loaded('Phar') ? 'yes' : 'no';`); loaded != "yes" {
+		t.Fatalf("isolated PHP must load Phar for Composer: %s", loaded)
+	}
 	if err := core.NewCurrentManager(p).Set(version); err != nil {
 		t.Fatal(err)
 	}

@@ -27,6 +27,11 @@ func NewProgressBar(opts ProgressOptions) *ProgressBar {
 	if opts.Writer == nil {
 		opts.Writer = os.Stderr
 	}
+	colors := Default().Styles(opts.Writer).Enabled()
+	theme := progressbar.Theme{Saucer: "=", SaucerHead: ">", SaucerPadding: " ", BarStart: "[", BarEnd: "]"}
+	if colors {
+		theme.Saucer, theme.SaucerHead = "[green]=[reset]", "[green]>[reset]"
+	}
 
 	options := []progressbar.Option{
 		progressbar.OptionSetDescription(opts.Description),
@@ -35,14 +40,8 @@ func NewProgressBar(opts ProgressOptions) *ProgressBar {
 		progressbar.OptionSetWidth(40),
 		progressbar.OptionClearOnFinish(),
 		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[green]=[reset]",
-			SaucerHead:    "[green]>[reset]",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
+		progressbar.OptionEnableColorCodes(colors),
+		progressbar.OptionSetTheme(theme),
 	}
 
 	if opts.ShowBytes {

@@ -29,7 +29,7 @@ Compiled probe programs are never run.`,
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprint(cmd.OutOrStdout(), doctor.FormatResults(result)); err != nil {
+		if _, err := fmt.Fprint(cmd.OutOrStdout(), doctor.FormatResultsWithPalette(result, commandPalette(cmd, cmd.OutOrStdout()))); err != nil {
 			return err
 		}
 

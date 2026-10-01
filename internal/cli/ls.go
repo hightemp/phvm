@@ -9,6 +9,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 var lsCmd = &cobra.Command{
@@ -44,6 +45,7 @@ var lsCmd = &cobra.Command{
 
 		logger := log.New(cmd.OutOrStdout(), log.LevelNormal)
 		logger.SetNoColor(!effectiveConfig.General.Color)
+		logger.SetColorMode(commandColorMode(cmd))
 		logger.PrintVersions(versions, currentVer, defaultVer)
 		return nil
 	},
@@ -64,6 +66,7 @@ Use --all to attempt to fetch more versions (may be slow).`,
 		paths := GetPaths()
 		client := getClient(paths)
 		api := getAPI(client)
+		palette := commandPalette(cmd, cmd.OutOrStdout())
 
 		if all {
 			log.Info("Fetching all available versions...")
@@ -73,7 +76,7 @@ Use --all to attempt to fetch more versions (may be slow).`,
 			}
 
 			for _, v := range versions {
-				fmt.Fprintln(cmd.OutOrStdout(), v)
+				fmt.Fprintln(cmd.OutOrStdout(), palette.Text(ui.Value, v))
 			}
 		} else {
 			log.Info("Fetching latest versions...")
@@ -91,7 +94,7 @@ Use --all to attempt to fetch more versions (may be slow).`,
 
 			for _, major := range majors {
 				release := releases[major]
-				fmt.Fprintf(cmd.OutOrStdout(), "PHP %s: %s\n", major, release.Version)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", palette.Text(ui.Name, "PHP "+major), palette.Text(ui.Value, release.Version))
 			}
 
 			// Show supported versions
@@ -100,7 +103,7 @@ Use --all to attempt to fetch more versions (may be slow).`,
 				return fmt.Errorf("fetch supported PHP branches: %w", err)
 			}
 			if len(supported) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "\nSupported branches:", supported)
+				fmt.Fprintln(cmd.OutOrStdout(), "\n"+palette.Text(ui.Heading, "Supported branches:"), palette.Text(ui.Value, fmt.Sprint(supported)))
 			}
 		}
 		return nil

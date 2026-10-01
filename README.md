@@ -283,6 +283,26 @@ Results, reports, help and shell initialization scripts go to **stdout**.
 Progress, warnings and errors go to **stderr**. Always check the exit status:
 a diagnostic report such as `doctor` can contain results even when checks fail.
 
+Human-readable reports use color accents: green for success/enabled/current,
+yellow for warnings/disabled states and hints, red for failures, and cyan for
+headings, versions and deferred checks. Automatic color is selected separately
+for stdout and stderr, only when that stream is a terminal, configuration allows
+color, `NO_COLOR` is unset/empty and `TERM` is not `dumb`.
+
+Use `--color=auto|always|never` to choose the mode. `always` explicitly overrides
+terminal/environment/configuration detection; `never` disables color. The
+existing `--no-color` remains an alternative opt-out; do not combine it with
+`--color`. `--no-color=false` enables automatic detection. Redirected output is
+plain by default. Machine-oriented `current`, `which`, `version`, `config show`,
+completion responses and generated shell scripts remain plain in every mode.
+
+```bash
+phvm doctor                       # Color accents in a terminal
+phvm doctor --color=always         # Explicitly request ANSI colors
+phvm --color=never ls
+NO_COLOR=1 phvm doctor
+```
+
 | Exit code | Meaning |
 |-----------|---------|
 | `0` | Command completed successfully |
@@ -596,7 +616,7 @@ nested schema above. There is no silent fallback for a broken configuration.
 |---------|--------------|-------------------------|
 | `general.default_profile` | `install --profile`, `doctor --profile` | `minimal`, `common`, `full`; default PHP build profile |
 | `general.parallel_jobs` | `install --jobs`, `ext install --jobs` | Nonnegative integer; `0` selects memory-aware automatic jobs; an explicit positive value has priority |
-| `general.color` | `--no-color[=false]` | Boolean; `--no-color` disables color, `--no-color=false` enables it |
+| `general.color` | `--color`, `--no-color[=false]` | Boolean controlling automatic colors; explicit `--color=always|never` overrides it |
 | `remote.mirror` | `--mirror` | Absolute HTTP(S) base URL without query/fragment; PHP API and source downloads |
 | `remote.user_agent` | `--user-agent` | Nonempty, single-line HTTP User-Agent |
 | `remote.timeout` | `--timeout` | Integer seconds, 1–86400, for each HTTP attempt |

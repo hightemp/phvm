@@ -118,7 +118,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("build requirements: %w", err)
 	}
 	if !requirements.AllOK {
-		log.Print("%s", doctor.FormatResults(requirements))
+		log.Print("%s", doctor.FormatResultsWithPalette(requirements, commandPalette(cmd, cmd.ErrOrStderr())))
 		return fmt.Errorf("build requirements check failed before source download")
 	}
 

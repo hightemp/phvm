@@ -2,11 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hightemp/phvm/internal/ext"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 var extCmd = &cobra.Command{
@@ -47,23 +50,8 @@ var extListCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Extensions for PHP %s:\n\n", phpVersion)
-		for _, e := range extensions {
-			status := e.State
-			version := ""
-			if e.Version != "" {
-				version = " (" + e.Version + ")"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s%s", status, e.Name, version)
-			if e.Module != "" && e.Module != e.Name {
-				fmt.Fprintf(cmd.OutOrStdout(), " (module: %s)", e.Module)
-			}
-			if e.Problem != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), " - %s", e.Problem)
-			}
-			fmt.Fprintln(cmd.OutOrStdout())
-		}
-		return nil
+		_, err = fmt.Fprint(cmd.OutOrStdout(), formatExtensionList(extensions, phpVersion, commandPalette(cmd, cmd.OutOrStdout())))
+		return err
 	},
 }
 
@@ -98,15 +86,47 @@ var extListRemoteCmd = &cobra.Command{
 			packages = packages[:limit]
 		}
 
+		palette := commandPalette(cmd, cmd.OutOrStdout())
 		for _, pkg := range packages {
-			fmt.Fprintln(cmd.OutOrStdout(), pkg)
+			fmt.Fprintln(cmd.OutOrStdout(), palette.Text(ui.Value, redact.Text(pkg)))
 		}
 
 		if limit > 0 && len(packages) == limit {
-			fmt.Fprintf(cmd.OutOrStdout(), "\n(showing first %d results)\n", limit)
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n", palette.Text(ui.Muted, fmt.Sprintf("(showing first %d results)", limit)))
 		}
 		return nil
 	},
+}
+
+func formatExtensionList(extensions []ext.Extension, phpVersion string, palette ui.Palette) string {
+	var output strings.Builder
+	paint := func(tone ui.Tone, text string) string { return palette.Text(tone, redact.Text(text)) }
+	fmt.Fprintf(&output, "%s %s:\n\n", paint(ui.Heading, "Extensions for PHP"), paint(ui.Value, phpVersion))
+	for _, entry := range extensions {
+		tone := ui.Muted
+		switch entry.State {
+		case "enabled":
+			tone = ui.Success
+		case "disabled":
+			tone = ui.Warning
+		case "builtin":
+			tone = ui.Info
+		case "broken", "missing":
+			tone = ui.Error
+		}
+		fmt.Fprintf(&output, "[%s] %s", paint(tone, entry.State), paint(ui.Name, entry.Name))
+		if entry.Version != "" {
+			fmt.Fprintf(&output, " (%s)", paint(ui.Value, entry.Version))
+		}
+		if entry.Module != "" && entry.Module != entry.Name {
+			fmt.Fprintf(&output, " (module: %s)", paint(ui.Muted, entry.Module))
+		}
+		if entry.Problem != "" {
+			fmt.Fprintf(&output, " - %s", paint(ui.Warning, entry.Problem))
+		}
+		output.WriteByte('\n')
+	}
+	return output.String()
 }
 
 var extInstallCmd = &cobra.Command{

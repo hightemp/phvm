@@ -8,9 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fatih/color"
-
 	"github.com/hightemp/phvm/internal/redact"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 // Level represents log level.
@@ -34,19 +33,11 @@ type Logger struct {
 	out     io.Writer
 	errOut  io.Writer
 	noColor bool
+	mode    ui.Mode
 	prefix  string
 }
 
-var (
-	defaultLogger = New(os.Stderr, LevelNormal)
-
-	successColor = color.New(color.FgGreen)
-	infoColor    = color.New(color.FgCyan)
-	warnColor    = color.New(color.FgYellow)
-	errorColor   = color.New(color.FgRed)
-	debugColor   = color.New(color.FgMagenta)
-	dimColor     = color.New(color.Faint)
-)
+var defaultLogger = New(os.Stderr, LevelNormal)
 
 // New creates a new Logger.
 func New(out io.Writer, level Level) *Logger {
@@ -54,6 +45,7 @@ func New(out io.Writer, level Level) *Logger {
 		level:  level,
 		out:    out,
 		errOut: out,
+		mode:   ui.Auto,
 	}
 }
 
@@ -79,7 +71,20 @@ func (l *Logger) SetNoColor(noColor bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.noColor = noColor
-	color.NoColor = noColor
+}
+
+// SetColorMode selects automatic, forced, or disabled colors for this logger.
+func (l *Logger) SetColorMode(mode ui.Mode) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.mode = mode
+}
+
+// Styles returns the logger's palette for the actual destination stream.
+func (l *Logger) Styles(out io.Writer) ui.Palette {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return ui.New(out, l.mode, !l.noColor)
 }
 
 // SetOutput sets the output writer.
@@ -103,7 +108,7 @@ func (l *Logger) Level() Level {
 	return l.level
 }
 
-func (l *Logger) output(c *color.Color, prefix, format string, args ...interface{}) {
+func (l *Logger) output(tone ui.Tone, prefix, format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -112,56 +117,51 @@ func (l *Logger) output(c *color.Color, prefix, format string, args ...interface
 		msg = l.prefix + msg
 	}
 	msg = redact.Text(msg)
+	palette := ui.New(l.out, l.mode, !l.noColor)
 
 	if prefix != "" {
-		if l.noColor {
-			fmt.Fprintf(l.out, "%s %s\n", prefix, msg)
-		} else {
-			c.Fprintf(l.out, "%s ", prefix)
-			fmt.Fprintln(l.out, msg)
+		if tone == ui.Success || tone == ui.Warning || tone == ui.Error {
+			msg = palette.Text(tone, msg)
 		}
+		fmt.Fprintf(l.out, "%s %s\n", palette.Text(tone, prefix), msg)
 	} else {
-		if l.noColor {
-			fmt.Fprintln(l.out, msg)
-		} else {
-			c.Fprintln(l.out, msg)
-		}
+		fmt.Fprintln(l.out, palette.Text(tone, msg))
 	}
 }
 
 // Success prints a success message.
 func (l *Logger) Success(format string, args ...interface{}) {
-	l.output(successColor, "✓", format, args...)
+	l.output(ui.Success, "✓", format, args...)
 }
 
 // Info prints an info message.
 func (l *Logger) Info(format string, args ...interface{}) {
 	if l.Level() >= LevelNormal {
-		l.output(infoColor, "→", format, args...)
+		l.output(ui.Info, "→", format, args...)
 	}
 }
 
 // Warn prints a warning message.
 func (l *Logger) Warn(format string, args ...interface{}) {
-	l.output(warnColor, "!", format, args...)
+	l.output(ui.Warning, "!", format, args...)
 }
 
 // Error prints an error message.
 func (l *Logger) Error(format string, args ...interface{}) {
-	l.output(errorColor, "✗", format, args...)
+	l.output(ui.Error, "✗", format, args...)
 }
 
 // Debug prints a debug message.
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.Level() >= LevelDebug {
-		l.output(debugColor, "[DEBUG]", format, args...)
+		l.output(ui.Info, "[DEBUG]", format, args...)
 	}
 }
 
 // Verbose prints a verbose message.
 func (l *Logger) Verbose(format string, args ...interface{}) {
 	if l.Level() >= LevelVerbose {
-		l.output(dimColor, "", format, args...)
+		l.output(ui.Muted, "", format, args...)
 	}
 }
 
@@ -190,6 +190,7 @@ func (l *Logger) Println(args ...interface{}) {
 func (l *Logger) PrintVersions(versions []string, current, defaultVer string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	palette := ui.New(l.out, l.mode, !l.noColor)
 
 	for _, v := range versions {
 		var markers []string
@@ -201,12 +202,11 @@ func (l *Logger) PrintVersions(versions []string, current, defaultVer string) {
 		}
 
 		if len(markers) > 0 {
-			if l.noColor {
-				fmt.Fprintf(l.out, "* %s (%s)\n", v, strings.Join(markers, ", "))
-			} else {
-				successColor.Fprintf(l.out, "* %s", v)
-				dimColor.Fprintf(l.out, " (%s)\n", strings.Join(markers, ", "))
+			tone := ui.Value
+			if v == current {
+				tone = ui.Success
 			}
+			fmt.Fprintf(l.out, "%s %s\n", palette.Text(tone, "* "+v), palette.Text(ui.Muted, "("+strings.Join(markers, ", ")+")"))
 		} else {
 			fmt.Fprintf(l.out, "  %s\n", v)
 		}

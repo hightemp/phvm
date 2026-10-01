@@ -11,6 +11,7 @@ import (
 	"github.com/hightemp/phvm/internal/configure"
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/redact"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 var fileConfig, effectiveConfig *core.Config
@@ -41,7 +42,8 @@ var configValidateCmd = &cobra.Command{
 	Use: "validate", Short: "Validate TOML, environment and explicit CLI settings",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Configuration is valid: %s\n", redact.Text(GetPaths().ConfigFile()))
+		palette := commandPalette(cmd, cmd.OutOrStdout())
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", palette.Text(ui.Success, "Configuration is valid"), palette.Text(ui.Value, redact.Text(GetPaths().ConfigFile())))
 		return err
 	},
 }
@@ -77,6 +79,18 @@ func loadCommandConfig(cmd *cobra.Command) error {
 }
 
 func applyConfigFlags(cmd *cobra.Command, cfg *core.Config) error {
+	if cmd.Flags().Changed("color") {
+		if err := validateColorFlags(cmd); err != nil {
+			return err
+		}
+		mode, err := ui.ParseMode(colorMode)
+		if err != nil {
+			return err
+		}
+		if mode != ui.Auto {
+			cfg.General.Color = mode == ui.Always
+		}
+	}
 	for name, target := range map[string]*string{"profile": &cfg.General.DefaultProfile, "mirror": &cfg.Remote.Mirror, "user-agent": &cfg.Remote.UserAgent} {
 		if cmd.Flags().Changed(name) {
 			value, err := cmd.Flags().GetString(name)

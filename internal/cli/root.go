@@ -11,6 +11,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 var (
@@ -20,10 +21,11 @@ var (
 	Commit = "unknown"
 
 	// Global flags
-	verbose bool
-	debug   bool
-	noColor bool
-	phvmDir string
+	verbose   bool
+	debug     bool
+	noColor   bool
+	colorMode string
+	phvmDir   string
 
 	// Shared instances
 	paths         *core.Paths
@@ -45,10 +47,16 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateColorFlags(cmd); err != nil {
+			return err
+		}
 		paths = core.NewPaths(phvmDir)
 		if cmd == versionCmd {
 			fileConfig = core.DefaultConfig()
 			effectiveConfig = fileConfig.Clone()
+			if err := applyConfigFlags(cmd, effectiveConfig); err != nil {
+				return err
+			}
 		} else if err := loadCommandConfig(cmd); err != nil {
 			return err
 		}
@@ -63,6 +71,7 @@ Similar to nvm for Node.js, phvm provides an easy way to:
 
 		logger := log.New(cmd.ErrOrStderr(), level)
 		logger.SetNoColor(!effectiveConfig.General.Color)
+		logger.SetColorMode(commandColorMode(cmd))
 		log.SetDefault(logger)
 		if commandUsesState(cmd) {
 			locked, release, err := paths.LockState(cmd.Context())
@@ -108,6 +117,9 @@ type resultWriter struct {
 	err error
 }
 
+// UnwrapWriter preserves destination-terminal detection through output tracking.
+func (w *resultWriter) UnwrapWriter() io.Writer { return w.Writer }
+
 func (w *resultWriter) Write(p []byte) (int, error) {
 	n, err := w.Writer.Write(p)
 	if n < len(p) && err == nil {
@@ -133,6 +145,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	rootCmd.PersistentFlags().StringVar(&colorMode, "color", string(ui.Auto), "Color accents: auto, always or never")
 	rootCmd.PersistentFlags().StringVar(&phvmDir, "phvm-dir", "", "Override PHVM_DIR")
 	rootCmd.PersistentFlags().String("mirror", "", "PHP source mirror base URL")
 	rootCmd.PersistentFlags().String("user-agent", "", "HTTP User-Agent")

@@ -29,7 +29,8 @@
     {"id":"php-space-extraction","package":"github.com/hightemp/phvm/internal/build","test":"TestPHPBuildChecksSpaceBeforeSourceExtraction","mode":"fixture","platforms":["linux","darwin"],"states":["low cache space","no extraction/configure/publication"]},
     {"id":"php-space-install","package":"github.com/hightemp/phvm/internal/build","test":"TestPHPBuildRechecksSpaceBeforeInstallation","mode":"fixture","platforms":["linux","darwin"],"states":["space loss after compile","no installation publication"]},
     {"id":"extension-space","package":"github.com/hightemp/phvm/internal/ext","test":"TestExtensionInstallChecksSpaceBeforeExtractionAndPublication","mode":"fixture","platforms":["linux","darwin"],"states":["low temporary space","space loss before publication","no extension publication"]},
-    {"id":"php-reinstall-space","package":"github.com/hightemp/phvm/internal/build","test":"TestPHPReinstallAccountsForPreviousInstallationFootprint","mode":"fixture","platforms":["linux","darwin"],"states":["force reinstall","previous bytes counted","working PHP preserved on low space"]}
+    {"id":"php-reinstall-space","package":"github.com/hightemp/phvm/internal/build","test":"TestPHPReinstallAccountsForPreviousInstallationFootprint","mode":"fixture","platforms":["linux","darwin"],"states":["force reinstall","previous bytes counted","working PHP preserved on low space"]},
+    {"id":"cli-color-report","package":"github.com/hightemp/phvm/internal/cli","test":"TestDoctorColorModeAddsAccentsWithoutChangingReport","mode":"fixture","platforms":["linux","darwin"],"states":["always/never modes","color accents","plain report data preserved"]}
   ],
   "runtime-fixture": [
     {"id":"composer-real-php-update","package":"github.com/hightemp/phvm/internal/composer","test":"TestUpdateRunsVerifiedPHARWithRealPHP","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["real PHP","synthetic PHAR","update","independent PHP launchers"]},

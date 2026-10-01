@@ -13,6 +13,7 @@ import (
 
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/toolchain"
+	"github.com/hightemp/phvm/internal/ui"
 )
 
 // CheckResult represents the result of a dependency check.
@@ -436,57 +437,67 @@ func getMacOSInstallCommand(result *DoctorResult) string {
 
 // FormatResults formats check results for display.
 func FormatResults(result *DoctorResult) string {
-	var sb strings.Builder
+	return FormatResultsWithPalette(result, ui.Plain())
+}
 
-	sb.WriteString("System Requirements Check\n")
-	sb.WriteString("=========================\n\n")
+// FormatResultsWithPalette highlights report meaning without changing its text.
+func FormatResultsWithPalette(result *DoctorResult, palette ui.Palette) string {
+	var sb strings.Builder
+	paint := func(tone ui.Tone, text string) string { return palette.Text(tone, redact.Text(text)) }
+
+	sb.WriteString(paint(ui.Heading, "System Requirements Check") + "\n")
+	sb.WriteString(paint(ui.Muted, "=========================") + "\n\n")
 	if result.PHPVersion != "" {
-		fmt.Fprintf(&sb, "PHP %s; profile: %s\n\n", result.PHPVersion, result.Profile)
+		fmt.Fprintf(&sb, "PHP %s; profile: %s\n\n", paint(ui.Value, result.PHPVersion), paint(ui.Value, result.Profile))
 	}
-	sb.WriteString(result.Environment)
+	sb.WriteString(formatEnvironment(result.Environment, palette))
 
 	for _, check := range result.Checks {
 		status := "✓"
+		tone := ui.Success
 		if !check.Found {
 			if check.Required {
 				status = "✗"
+				tone = ui.Error
 			} else {
 				status = "!"
+				tone = ui.Warning
 			}
 		}
 		if check.Deferred {
 			status = "→"
+			tone = ui.Info
 		}
 
-		_, _ = fmt.Fprintf(&sb, "%s %s", status, check.Name)
+		_, _ = fmt.Fprintf(&sb, "%s %s", paint(tone, status), paint(ui.Name, check.Name))
 		if check.Deferred {
-			fmt.Fprintf(&sb, " - DEFERRED: %s\n", check.HelpText)
+			fmt.Fprintf(&sb, " - %s: %s\n", paint(ui.Info, "DEFERRED"), paint(ui.Muted, check.HelpText))
 			continue
 		}
 		if check.Found {
 			if check.Version != "" {
-				_, _ = fmt.Fprintf(&sb, " (%s)", check.Version)
+				_, _ = fmt.Fprintf(&sb, " (%s)", paint(ui.Value, check.Version))
 			}
 			if check.Path != "" {
-				fmt.Fprintf(&sb, " [%s]", check.Path)
+				fmt.Fprintf(&sb, " [%s]", paint(ui.Muted, check.Path))
 			}
 			sb.WriteString("\n")
 		} else {
 			if check.Problem != "" {
-				sb.WriteString(" - UNUSABLE\n")
-				sb.WriteString("    " + strings.ReplaceAll(check.Problem, "\n", "\n    ") + "\n")
+				sb.WriteString(" - " + paint(tone, "UNUSABLE") + "\n")
+				sb.WriteString("    " + paint(ui.Muted, strings.ReplaceAll(check.Problem, "\n", "\n    ")) + "\n")
 				if check.Path != "" {
 					label := "selected path"
 					if strings.HasSuffix(check.Path, ".pc") {
 						label = "pkg-config file"
 					}
-					_, _ = fmt.Fprintf(&sb, "    %s: %s\n", label, check.Path)
+					_, _ = fmt.Fprintf(&sb, "    %s: %s\n", paint(ui.Info, label), paint(ui.Muted, check.Path))
 				}
 			} else {
-				sb.WriteString(" - NOT FOUND\n")
+				sb.WriteString(" - " + paint(tone, "NOT FOUND") + "\n")
 			}
 			if check.HelpText != "" {
-				_, _ = fmt.Fprintf(&sb, "    %s\n", check.HelpText)
+				_, _ = fmt.Fprintf(&sb, "    %s\n", paint(ui.Warning, check.HelpText))
 			}
 		}
 	}
@@ -494,32 +505,46 @@ func FormatResults(result *DoctorResult) string {
 	sb.WriteString("\n")
 	for _, check := range result.Checks {
 		if check.Problem != "" && check.ProblemKind != "version" {
-			sb.WriteString("Check toolchain selection: PATH, CC, PKG_CONFIG, selected .pc files, CPPFLAGS/CFLAGS/LDFLAGS/LIBS. A Homebrew/system toolchain mix or stale /usr/local metadata can cause this; reinstalling packages alone may not fix it.\n\n")
+			sb.WriteString(paint(ui.Warning, "Check toolchain selection: PATH, CC, PKG_CONFIG, selected .pc files, CPPFLAGS/CFLAGS/LDFLAGS/LIBS. A Homebrew/system toolchain mix or stale /usr/local metadata can cause this; reinstalling packages alone may not fix it.") + "\n\n")
 			break
 		}
 	}
 
 	if result.AllOK && result.Warnings == 0 && result.Deferred == 0 {
-		sb.WriteString("All required build checks passed!\n")
+		sb.WriteString(paint(ui.Success, "All required build checks passed!") + "\n")
 	} else if result.AllOK {
-		sb.WriteString("All checked required dependencies are usable.\n")
+		sb.WriteString(paint(ui.Success, "All checked required dependencies are usable.") + "\n")
 		if result.Warnings > 0 {
-			_, _ = fmt.Fprintf(&sb, "Optional missing or unusable: %d\n", result.Warnings)
+			sb.WriteString(paint(ui.Warning, fmt.Sprintf("Optional missing or unusable: %d", result.Warnings)) + "\n")
 		}
 	} else {
-		_, _ = fmt.Fprintf(&sb, "Missing or unusable: %d required, %d optional\n", result.Errors, result.Warnings)
+		sb.WriteString(paint(ui.Error, fmt.Sprintf("Missing or unusable: %d required, %d optional", result.Errors, result.Warnings)) + "\n")
 	}
 	if result.Deferred > 0 {
-		fmt.Fprintf(&sb, "Deferred private libraries: %d (checked by configure after phvm builds them)\n", result.Deferred)
+		sb.WriteString(paint(ui.Info, fmt.Sprintf("Deferred private libraries: %d (checked by configure after phvm builds them)", result.Deferred)) + "\n")
 	}
 
 	// Add install command suggestion if anything is missing
 	if result.Errors > 0 || result.Warnings > 0 {
 		if installCmd := GetInstallCommand(result); installCmd != "" {
-			sb.WriteString("\nTo install missing packages, run:\n")
-			_, _ = fmt.Fprintf(&sb, "  %s\n", installCmd)
+			sb.WriteString("\n" + paint(ui.Heading, "To install missing packages, run:") + "\n")
+			_, _ = fmt.Fprintf(&sb, "  %s\n", paint(ui.Value, installCmd))
 		}
 	}
 
-	return redact.Text(sb.String())
+	return sb.String()
+}
+
+func formatEnvironment(environment string, palette ui.Palette) string {
+	lines := strings.Split(redact.Text(environment), "\n")
+	for i, line := range lines {
+		if line == "Build environment:" {
+			lines[i] = palette.Text(ui.Heading, line)
+		} else if prefix, value, ok := strings.Cut(line, "linker selected by CC: "); ok {
+			lines[i] = prefix + "linker selected by CC: " + palette.Text(ui.Value, value)
+		} else if key, value, ok := strings.Cut(line, "="); ok {
+			lines[i] = palette.Text(ui.Muted, key+"=") + value
+		}
+	}
+	return strings.Join(lines, "\n")
 }

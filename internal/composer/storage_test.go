@@ -58,7 +58,11 @@ func TestComposerInstallationSurvivesRemovedCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err = exec.Command(filepath.Join(p.VersionBin("8.2.30"), "composer"), "--version").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "2.8.1") {
+		t.Errorf("other PHP Composer changed after update: %v %s", err, out)
+	}
+	out, err = exec.Command(filepath.Join(p.VersionBin("8.3.30"), "composer"), "--version").CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "2.9.0") {
-		t.Errorf("updated shared Composer failed after second cleanup: %v %s", err, out)
+		t.Errorf("updated PHP Composer failed after second cleanup: %v %s", err, out)
 	}
 }

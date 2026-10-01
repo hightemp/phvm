@@ -30,9 +30,10 @@ var composerInstallCmd = &cobra.Command{
 
 		global, _ := cmd.Flags().GetBool("global")
 		phpVersion, _ := cmd.Flags().GetString("php")
+		composerVersion, _ := cmd.Flags().GetString("version")
 
 		if global {
-			if err := mgr.InstallGlobal(cmd.Context()); err != nil {
+			if err := mgr.InstallGlobalVersion(cmd.Context(), composerVersion); err != nil {
 				return fmt.Errorf("failed to install Composer: %w", err)
 			}
 		} else {
@@ -42,7 +43,7 @@ var composerInstallCmd = &cobra.Command{
 				return fmt.Errorf("failed to resolve installed PHP: %w", resolveErr)
 			}
 
-			if err := mgr.Install(cmd.Context(), phpVersion); err != nil {
+			if err := mgr.InstallVersion(cmd.Context(), phpVersion, composerVersion); err != nil {
 				return fmt.Errorf("failed to install Composer: %w", err)
 			}
 		}
@@ -122,8 +123,9 @@ func init() {
 	composerCmd.AddCommand(composerEnableCmd)
 	composerCmd.AddCommand(composerDisableCmd)
 
-	composerInstallCmd.Flags().Bool("global", false, "Install globally (shared by all versions)")
+	composerInstallCmd.Flags().Bool("global", false, "Download a shared seed for enabling individual PHP versions")
 	composerInstallCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
+	composerInstallCmd.Flags().String("version", "", "Exact Composer release X.Y.Z (default: newest compatible stable)")
 
 	composerUpdateCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")
 	composerEnableCmd.Flags().String("php", "", "Installed PHP version or alias (default: current)")

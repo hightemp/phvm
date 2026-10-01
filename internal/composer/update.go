@@ -38,10 +38,10 @@ func (m *Manager) update(ctx context.Context, phpVersion string) error {
 			return fmt.Errorf("%s not installed for PHP %s", name, phpVersion)
 		}
 	}
-	if err := m.MigrateLegacy(ctx); err != nil {
+	if err := m.migrateLegacy(ctx, phpVersion); err != nil {
 		return err
 	}
-	root, err := m.paths.OpenDataDir(m.paths.Composer, false)
+	root, err := m.paths.OpenDataDir(m.phpComposerDir(phpVersion), false)
 	if err != nil {
 		return fmt.Errorf("open Composer storage: %w", err)
 	}
@@ -54,20 +54,28 @@ func (m *Manager) update(ctx context.Context, phpVersion string) error {
 		return fmt.Errorf("composer PHAR must be a regular file, not a symlink or directory")
 	}
 	phpBin := filepath.Join(m.paths.VersionBin(phpVersion), core.PHPBinary())
-	active := m.pharPath()
+	active := m.PHPPharPath(phpVersion)
 	before, err := m.composerVersion(ctx, phpBin, active)
 	if err != nil {
 		return fmt.Errorf("read installed Composer version: %w", err)
 	}
 	log.Info("Updating Composer %s...", before.Original())
-	stage, err := m.stageVerified(ctx, root)
+	release, err := m.selectRelease(ctx, phpVersion, "")
+	if err != nil {
+		return err
+	}
+	url, checksumURL := release.urls()
+	stage, err := m.stageVerified(ctx, root, url, checksumURL)
 	if err != nil {
 		return fmt.Errorf("download Composer update: %w", err)
 	}
 	defer func() { _ = root.Remove(stage) }()
-	after, err := m.composerVersion(ctx, phpBin, filepath.Join(m.paths.Composer, stage))
+	after, err := m.composerVersion(ctx, phpBin, filepath.Join(m.phpComposerDir(phpVersion), stage))
 	if err != nil {
 		return fmt.Errorf("validate downloaded Composer with PHP %s: %w", phpVersion, err)
+	}
+	if after.Original() != release.Version {
+		return fmt.Errorf("downloaded Composer version %s does not match selected %s", after.Original(), release.Version)
 	}
 	if after.LessThan(before) {
 		return fmt.Errorf("refusing Composer downgrade from %s to %s", before.Original(), after.Original())
@@ -75,24 +83,6 @@ func (m *Manager) update(ctx context.Context, phpVersion string) error {
 	if after.Equal(before) {
 		log.Info("Composer is already up to date (%s)", before.Original())
 		return nil
-	}
-	// The current layout shares one PHAR across every enabled PHP installation.
-	versions, err := core.NewInstalledManager(m.paths).List()
-	if err != nil {
-		return fmt.Errorf("list PHP versions using shared Composer: %w", err)
-	}
-	for _, version := range versions {
-		if version == phpVersion || !m.IsInstalled(version) {
-			continue
-		}
-		otherPHP := filepath.Join(m.paths.VersionBin(version), core.PHPBinary())
-		otherVersion, err := m.composerVersion(ctx, otherPHP, filepath.Join(m.paths.Composer, stage))
-		if err != nil {
-			return fmt.Errorf("shared Composer update is incompatible with enabled PHP %s: %w", version, err)
-		}
-		if !otherVersion.Equal(after) {
-			return fmt.Errorf("inconsistent Composer version reported by PHP %s", version)
-		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err

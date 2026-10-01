@@ -79,21 +79,28 @@ func seedComposerUpdate(t *testing.T, php string, old []byte) (*Manager, *core.P
 	if err := os.WriteFile(filepath.Join(p.Composer, "composer.phar"), old, 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("PHVM_TEST_SELF_UPDATE", filepath.Join(p.Root, "self-update-called"))
+	t.Setenv("PHVM_TEST_VERSION_CALLS", filepath.Join(p.Root, "version-calls"))
 	m := NewManager(p)
 	for _, version := range []string{"8.3.30", "8.2.30"} {
 		if err := m.Enable(version); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PHVM_TEST_SELF_UPDATE", filepath.Join(p.Root, "self-update-called"))
-	t.Setenv("PHVM_TEST_VERSION_CALLS", filepath.Join(p.Root, "version-calls"))
 	return m, p
 }
 
 func updateTransport(payload []byte, checksum string, status int) testTransport {
+	version := "2.9.0"
+	if match := composerVersionPattern.FindSubmatch(payload); len(match) == 2 {
+		version = string(match[1])
+	}
 	return func(r *http.Request) (*http.Response, error) {
 		if err := r.Context().Err(); err != nil {
 			return nil, err
+		}
+		if r.URL.Path == "/versions" {
+			return catalogResponse(version), nil
 		}
 		data := string(payload)
 		if strings.HasSuffix(r.URL.Path, "sha256sum") {
@@ -101,6 +108,11 @@ func updateTransport(payload []byte, checksum string, status int) testTransport 
 		}
 		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(data)), Header: make(http.Header), ContentLength: int64(len(data))}, nil
 	}
+}
+
+func catalogResponse(version string) *http.Response {
+	data := fmt.Sprintf(`{"stable":[{"version":%q,"min-php":70205,"path":%q}]}`, version, "/download/"+version+"/composer.phar")
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(data)), Header: make(http.Header)}
 }
 
 func TestUpdateRunsVerifiedPHARWithRealPHP(t *testing.T) {
@@ -113,7 +125,7 @@ func TestUpdateRunsVerifiedPHARWithRealPHP(t *testing.T) {
 	if err := m.Update(context.Background(), "8.3.30"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+	data, err := os.ReadFile(m.PHPPharPath("8.3.30"))
 	if err != nil || string(data) != string(newPHAR) {
 		t.Error("Update reported success without publishing the verified new PHAR")
 	}
@@ -124,10 +136,10 @@ func TestUpdateRunsVerifiedPHARWithRealPHP(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(p.Root, "self-update-called")); !os.IsNotExist(err) {
 		t.Error("Update delegated unverified writes to self-update")
 	}
-	for _, version := range []string{"8.3.30", "8.2.30"} {
+	for version, want := range map[string]string{"8.3.30": "2.9.0", "8.2.30": "2.8.1"} {
 		out, err := exec.Command(filepath.Join(p.VersionBin(version), "composer"), "--version").CombinedOutput()
-		if err != nil || !strings.Contains(string(out), "Composer version 2.9.0") {
-			t.Errorf("shared wrapper %s did not see updated PHAR: %v %s", version, err, out)
+		if err != nil || !strings.Contains(string(out), "Composer version "+want) {
+			t.Errorf("PHP %s Composer changed unexpectedly: %v %s", version, err, out)
 		}
 	}
 }
@@ -142,7 +154,6 @@ func TestUpdateFailuresPreserveWorkingPHAR(t *testing.T) {
 		{name: "checksum mismatch", version: "2.9.0", checksum: strings.Repeat("0", 64), status: 200},
 		{name: "download HTTP error", version: "2.9.0", status: 503},
 		{name: "new runtime fails", version: "2.9.0", behavior: "exit", status: 200},
-		{name: "other enabled PHP incompatible", version: "2.9.0", behavior: "incompatibleother", status: 200},
 		{name: "unparseable version", version: "2.9.0", behavior: "invalid", status: 200},
 		{name: "older candidate", version: "2.7.9", status: 200},
 	} {
@@ -169,7 +180,7 @@ func TestUpdateFailuresPreserveWorkingPHAR(t *testing.T) {
 					t.Errorf("unverified download was executed: %s %v", calls, err)
 				}
 			}
-			data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+			data, err := os.ReadFile(m.PHPPharPath("8.3.30"))
 			if err != nil || string(data) != string(old) {
 				t.Error("failed update replaced working PHAR")
 			}
@@ -181,7 +192,7 @@ func TestUpdateFailuresPreserveWorkingPHAR(t *testing.T) {
 			if err != nil || !strings.Contains(string(out), "Composer version 2.8.1") {
 				t.Errorf("old Composer stopped working: %v %s", err, out)
 			}
-			files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
+			files, _ := filepath.Glob(filepath.Join(m.phpComposerDir("8.3.30"), "*.tmp*"))
 			if len(files) != 0 {
 				t.Errorf("staging files remain: %v", files)
 			}
@@ -195,7 +206,7 @@ func TestUpdateRejectsMissingOrUnsafeInstallation(t *testing.T) {
 	for _, kind := range []string{"missing PHP", "missing launcher", "missing PHAR", "symlink PHAR", "directory PHAR", "bad version"} {
 		t.Run(kind, func(t *testing.T) {
 			m, p := seedComposerUpdate(t, php, old)
-			active := filepath.Join(p.Composer, "composer.phar")
+			active := m.PHPPharPath("8.3.30")
 			version := "8.3.30"
 			switch kind {
 			case "missing PHP":
@@ -245,7 +256,7 @@ func TestUpdateRejectsMissingOrUnsafeInstallation(t *testing.T) {
 func TestUpdateAlreadyCurrentDoesNotClaimVersionChange(t *testing.T) {
 	php := realPHP(t)
 	old := testComposerPHAR(t, php, "2.9.0", "")
-	m, p := seedComposerUpdate(t, php, old)
+	m, _ := seedComposerUpdate(t, php, old)
 	sum := sha256.Sum256(old)
 	m.client = &http.Client{Transport: updateTransport(old, hex.EncodeToString(sum[:]), 200)}
 	var output bytes.Buffer
@@ -258,11 +269,11 @@ func TestUpdateAlreadyCurrentDoesNotClaimVersionChange(t *testing.T) {
 	if strings.Contains(output.String(), "Composer updated") || !strings.Contains(output.String(), "already up to date (2.9.0)") {
 		t.Errorf("misleading update result: %s", output.String())
 	}
-	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+	data, err := os.ReadFile(m.PHPPharPath("8.3.30"))
 	if err != nil || string(data) != string(old) {
 		t.Error("no-op changed active PHAR")
 	}
-	files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
+	files, _ := filepath.Glob(filepath.Join(m.phpComposerDir("8.3.30"), "*.tmp*"))
 	if len(files) != 0 {
 		t.Errorf("no-op left staging files: %v", files)
 	}
@@ -277,7 +288,7 @@ func TestUpdateCancellationPreservesWorkingPHAR(t *testing.T) {
 				behavior = "wait"
 			}
 			old := testComposerPHAR(t, php, "2.8.1", behavior)
-			m, p := seedComposerUpdate(t, php, old)
+			m, _ := seedComposerUpdate(t, php, old)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			m.client = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) { cancel(); return nil, context.Canceled })}
@@ -290,11 +301,11 @@ func TestUpdateCancellationPreservesWorkingPHAR(t *testing.T) {
 			if err := m.Update(ctx, "8.3.30"); !errors.Is(err, context.Canceled) {
 				t.Errorf("cancellation not returned: %v", err)
 			}
-			data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+			data, err := os.ReadFile(m.PHPPharPath("8.3.30"))
 			if err != nil || string(data) != string(old) {
 				t.Error("cancelled update changed active PHAR")
 			}
-			files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
+			files, _ := filepath.Glob(filepath.Join(m.phpComposerDir("8.3.30"), "*.tmp*"))
 			if len(files) != 0 {
 				t.Errorf("cancelled update left staging files: %v", files)
 			}
@@ -306,11 +317,14 @@ func TestConcurrentFailedUpdatePreservesPublishedPHAR(t *testing.T) {
 	php := realPHP(t)
 	old := testComposerPHAR(t, php, "2.8.1", "")
 	newPHAR := testComposerPHAR(t, php, "2.9.0", "")
-	m, p := seedComposerUpdate(t, php, old)
+	m, _ := seedComposerUpdate(t, php, old)
 	sum := sha256.Sum256(newPHAR)
 	blocked, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	m.client = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/versions" {
+			return catalogResponse("2.9.0"), nil
+		}
 		var body io.ReadCloser
 		if strings.HasSuffix(r.URL.Path, "sha256sum") {
 			body = io.NopCloser(strings.NewReader(hex.EncodeToString(sum[:])))
@@ -338,11 +352,11 @@ func TestConcurrentFailedUpdatePreservesPublishedPHAR(t *testing.T) {
 	if second != nil || first == nil {
 		t.Fatalf("valid update=%v invalid update=%v", second, first)
 	}
-	data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+	data, err := os.ReadFile(m.PHPPharPath("8.2.30"))
 	if err != nil || !bytes.Equal(data, newPHAR) {
 		t.Error("failed concurrent update changed the published PHAR")
 	}
-	files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
+	files, _ := filepath.Glob(filepath.Join(m.phpComposerDir("8.2.30"), "*.tmp*"))
 	if len(files) != 0 {
 		t.Errorf("concurrent update left staging files: %v", files)
 	}

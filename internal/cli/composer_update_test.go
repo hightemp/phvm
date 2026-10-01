@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,10 +36,16 @@ esac
 	if err := os.WriteFile(filepath.Join(p.VersionBin("8.3.30"), core.PHPBinary()), []byte(php), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(p.Composer, "composer.phar"), []byte("preserve-working-file"), 0600); err != nil {
+	mgr := composer.NewManager(p)
+	pharPath := mgr.PHPPharPath("8.3.30")
+	if err := os.MkdirAll(filepath.Dir(pharPath), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := composer.NewManager(p).Enable("8.3.30"); err != nil {
+	if err := os.WriteFile(pharPath, []byte("preserve-working-file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	launcher := fmt.Sprintf("#!/bin/sh\nexec '%s' '%s' \"$@\"\n", filepath.Join(p.VersionBin("8.3.30"), core.PHPBinary()), pharPath)
+	if err := os.WriteFile(filepath.Join(p.VersionBin("8.3.30"), "composer"), []byte(launcher), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := core.NewCurrentManager(p).Set("8.3.30"); err != nil {
@@ -53,7 +60,7 @@ esac
 		if err == nil || strings.Contains(string(out), "Composer updated") || !strings.Contains(string(out), "invalid Composer PHAR") {
 			t.Errorf("false update success: %v %s", err, out)
 		}
-		data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar"))
+		data, err := os.ReadFile(pharPath)
 		if err != nil || string(data) != "preserve-working-file" {
 			t.Error("failed CLI update changed active PHAR")
 		}

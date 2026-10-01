@@ -198,8 +198,8 @@ func TestScenarioNativeComposerPECLAndIniLifecycle(t *testing.T) {
 	if err := m.DisableContext(ctx, version); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(nativeOutput(ctx, t, phpBin, filepath.Join(p.Composer, "composer.phar"), "--version"), "Composer version ") {
-		t.Fatal("shared Composer removed by disable")
+	if !strings.HasPrefix(nativeOutput(ctx, t, phpBin, m.PHPPharPath(version), "--version"), "Composer version ") {
+		t.Fatal("PHP-specific Composer PHAR removed by disable")
 	}
 	if err := core.NewCurrentManager(p).Clear(); err != nil {
 		t.Fatal(err)

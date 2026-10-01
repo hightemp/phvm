@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,6 +37,9 @@ func TestWaitingComposerUpdateRechecksVersionAndCannotDowngrade(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	sum := sha256.Sum256(higher)
 	first.client = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/versions" {
+			return catalogResponse("2.10.0"), nil
+		}
 		body := io.NopCloser(strings.NewReader(hex.EncodeToString(sum[:])))
 		if !strings.HasSuffix(r.URL.Path, "sha256sum") {
 			body = &gatedComposerBody{Reader: bytes.NewReader(higher), entered: entered, release: release}
@@ -57,7 +59,7 @@ func TestWaitingComposerUpdateRechecksVersionAndCannotDowngrade(t *testing.T) {
 		<-firstDone
 		t.Fatal("update did not reach barrier")
 	}
-	go func() { secondDone <- second.Update(context.Background(), "8.2.30") }()
+	go func() { secondDone <- second.Update(context.Background(), "8.3.30") }()
 	time.Sleep(100 * time.Millisecond)
 	if lowerCalls.Load() != 0 {
 		t.Error("second update fetched before acquiring shared state")
@@ -69,7 +71,7 @@ func TestWaitingComposerUpdateRechecksVersionAndCannotDowngrade(t *testing.T) {
 	if err := <-secondDone; err == nil || !strings.Contains(err.Error(), "downgrade") {
 		t.Fatalf("stale update error=%v", err)
 	}
-	if data, err := os.ReadFile(filepath.Join(p.Composer, "composer.phar")); err != nil || !bytes.Equal(data, higher) {
+	if data, err := os.ReadFile(first.PHPPharPath("8.3.30")); err != nil || !bytes.Equal(data, higher) {
 		t.Error("waiting update replaced higher published version")
 	}
 }

@@ -133,14 +133,14 @@ func TestCacheClearPreservesAndMigratesComposer(t *testing.T) {
 			if err != nil {
 				t.Fatalf("cache clear: %v %s", err, out)
 			}
-			permanent := filepath.Join(p.Root, "tools", "composer", "composer.phar")
-			if data, err := os.ReadFile(permanent); err != nil || string(data) != "Composer version 2.9.0\n" {
-				t.Errorf("Composer not preserved outside cache: %s %v", data, err)
-			}
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Error("disposable cache was not removed")
 			}
 			for _, version := range []string{"8.3.30", "8.2.30"} {
+				permanent := filepath.Join(p.Composer, version, "composer.phar")
+				if data, err := os.ReadFile(permanent); err != nil || string(data) != "Composer version 2.9.0\n" {
+					t.Errorf("Composer for PHP %s not preserved outside cache: %s %v", version, data, err)
+				}
 				wrapper := filepath.Join(p.VersionBin(version), "composer")
 				out, err := exec.Command(wrapper, "--version").CombinedOutput()
 				if err != nil || string(out) != "Composer version 2.9.0\n" {

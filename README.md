@@ -272,8 +272,8 @@ does not have a transaction guarantee.
 | Command | Description |
 |---------|-------------|
 | `phvm doctor --php 8.5.11 --profile common` | Check tools and libraries for the selected PHP build |
-| `phvm composer install` | Install Composer |
-| `phvm composer update [--php <version-or-alias>]` | Verify and atomically update the shared Composer PHAR |
+| `phvm composer install [--php <version-or-alias>] [--version X.Y.Z]` | Install the newest compatible or an exact Composer release for one PHP |
+| `phvm composer update [--php <version-or-alias>]` | Verify and atomically update Composer for one PHP |
 | `phvm cache clear [--downloads|--sources|--build|--all]` | Clear cache while preserving installed Composer |
 | `phvm init <shell>` | Print shell init script |
 
@@ -315,16 +315,24 @@ process group; cancellation stops the editor itself.
 ## Updating Composer
 
 ```bash
+phvm composer install                 # Newest compatible release for current PHP
+phvm composer install --php 5.6 --version 2.2.30
 phvm composer update
 phvm composer update --php 8.3
 phvm composer update --php prod
 ```
 
-`--php` selects an installed PHP version/alias; the default is current. Phvm runs
-the selected PHP against the PHAR's `--version`, downloads the latest stable
-PHAR to a unique staging file, checks the official SHA256, and runs the verified
-candidate's `--version` before replacing the active file atomically. The shell
-launcher is never passed to PHP as source. Version probes disable Composer
+`--php` selects an installed PHP version/alias; the default is current. Without
+`--version`, phvm reads [Composer's official release channels](https://getcomposer.org/download/#download-channels) and selects
+the newest release compatible with that PHP. For example, an old PHP 5.6 can
+use Composer 2.2 LTS while PHP 8.3 uses the current stable branch. `--version`
+accepts an exact `X.Y.Z` release and may intentionally select an older Composer;
+the selected PHP must still run it successfully. PHP older than 5.3.2 is not
+supported by [Composer 2](https://getcomposer.org/doc/00-intro.md#system-requirements). Phvm downloads the selected PHAR to a unique staging
+file, checks its official SHA256, and runs the verified candidate's `--version`
+with the selected PHP before replacing the active file atomically. The reported
+version must match the requested or selected release. The shell launcher is never
+passed to PHP as source. Version probes disable Composer
 plugins, scripts, ANSI and interaction using [Composer's global options](https://getcomposer.org/doc/03-cli.md#global-options).
 
 Successful output includes the before/after versions. An identical version is
@@ -332,28 +340,33 @@ reported as already up to date; a downgrade is rejected. A failed download,
 checksum, PHP runtime/version check or cancellation preserves the active PHAR
 and launchers, returns a nonzero CLI status and removes staging files.
 
-The layout uses one shared PHAR at `$PHVM_DIR/tools/composer/composer.phar`.
-Updating it affects all enabled PHP versions. Before publication, the candidate
-must also run and report the same version under each other enabled, registered
-PHP installation. An incompatible runtime blocks the update. The working PHAR
-is never part of cache cleanup; a verified candidate replaces the active
-file atomically at this stable path.
+Each PHP version has its own PHAR at
+`$PHVM_DIR/tools/composer/<php-version>/composer.phar`. Its `bin/composer`
+launcher runs that version's PHP with that PHAR. Updating PHP 8.3's Composer
+does not change PHP 5.6's Composer. Working PHARs are outside cache cleanup.
+`composer disable --php X` removes only X's launcher; its PHAR remains for a
+later `composer enable --php X`.
 
 ### Composer storage and cache cleanup
 
-Install, global install, enable and update use this permanent shared storage.
+Install, enable and update use permanent per-PHP storage. For compatibility,
+`composer install --global` downloads a shared seed at
+`$PHVM_DIR/tools/composer/composer.phar`; it is not the active PHAR for enabled
+PHP versions. `composer enable --php X` copies and validates that seed when X
+has no selected PHAR. If the seed is incompatible, install a compatible release
+with `composer install --php X` instead.
 `cache clear` and `cache clear --all` remove disposable download/source/build and
 extension archive files. `cache clear --downloads` removes downloaded PHP files.
 These commands preserve Composer. Composer still works after
 the entire cache directory is removed once its installation uses the permanent
 path.
 
-Before clearing downloads, phvm automatically migrates the old
-`cache/downloads/composer.phar` and standard managed launchers. Migration copies
-the existing PHAR through a temporary file and an atomic rename, then rewrites
-launchers to the permanent path without executing PHP or contacting the network.
-An existing permanent PHAR takes precedence over cached legacy bytes. Migration
-is repeatable; old cache bytes remain until cleanup succeeds.
+Before clearing downloads, phvm migrates old shared and cached Composer PHARs
+and standard managed launchers. It copies and checks the PHAR with each target
+PHP before redirecting that version's launcher. An existing permanent shared
+PHAR takes precedence over cached legacy bytes. Migration is repeatable; old
+source bytes remain until cleanup succeeds. An incompatible PHP needs an
+explicit `composer install --php X` to select a compatible release.
 
 A migration error stops cleanup before deletion. An unrecognized custom launcher
 that still references the legacy PHAR is preserved and diagnosed; use
@@ -532,7 +545,8 @@ validates file structure; PHP startup validation runs when applying the profile.
 │   └── downloads/         # Downloaded tarballs
 ├── tools/
 │   └── composer/
-│       └── composer.phar  # Shared Composer, preserved by cache cleanup
+│       ├── 8.3.15/composer.phar  # Composer selected for PHP 8.3.15
+│       └── 8.2.27/composer.phar  # Independent Composer for PHP 8.2.27
 ├── config/
 │   └── phvm.toml          # phvm configuration
 └── logs/                   # Build logs

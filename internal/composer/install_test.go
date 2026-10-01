@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/hightemp/phvm/internal/core"
 )
 
 type testTransport func(*http.Request) (*http.Response, error)
@@ -20,7 +18,7 @@ type testTransport func(*http.Request) (*http.Response, error)
 func (f testTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestInstallRequiresVerifiedComposer(t *testing.T) {
-	const payload = "new composer"
+	const payload = "2.9.0:70205\n"
 	sum := sha256.Sum256([]byte(payload))
 	valid := hex.EncodeToString(sum[:]) + "  composer.phar\n"
 	for _, global := range []bool{false, true} {
@@ -34,23 +32,23 @@ func TestInstallRequiresVerifiedComposer(t *testing.T) {
 			{"checksum unavailable", "error", 503, true},
 		} {
 			t.Run(fmt.Sprintf("global=%v/%s", global, tt.name), func(t *testing.T) {
-				p := core.NewPaths(t.TempDir())
-				if err := p.EnsureDirectories(); err != nil {
-					t.Fatal(err)
-				}
+				p := seedCompatiblePHP(t)
 				phar := filepath.Join(p.Composer, "composer.phar")
+				if !global {
+					phar = filepath.Join(p.Composer, "8.3.30", "composer.phar")
+					if err := os.MkdirAll(filepath.Dir(phar), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if err := os.WriteFile(phar, []byte("old composer"), 0600); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.MkdirAll(p.VersionBin("8.3.30"), 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(p.VersionBin("8.3.30"), core.PHPBinary()), []byte("fixture"), 0700); err != nil {
 					t.Fatal(err)
 				}
 				old := http.DefaultClient
 				t.Cleanup(func() { http.DefaultClient = old })
 				http.DefaultClient = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+					if r.URL.Path == "/versions" {
+						return catalogResponse("2.9.0"), nil
+					}
 					body, status := payload, 200
 					if strings.HasSuffix(r.URL.Path, "sha256sum") {
 						body, status = tt.checksum, tt.status
@@ -83,7 +81,7 @@ func TestInstallRequiresVerifiedComposer(t *testing.T) {
 						t.Error("wrapper published after failed verification")
 					}
 				}
-				files, _ := filepath.Glob(filepath.Join(p.Composer, "*.tmp*"))
+				files, _ := filepath.Glob(filepath.Join(filepath.Dir(phar), "*.tmp*"))
 				if len(files) > 0 {
 					t.Errorf("staging files left: %v", files)
 				}

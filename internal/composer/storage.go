@@ -17,6 +17,15 @@ const pharName = "composer.phar"
 
 func (m *Manager) pharPath() string { return filepath.Join(m.paths.Composer, pharName) }
 
+func (m *Manager) phpComposerDir(version string) string {
+	return filepath.Join(m.paths.Composer, version)
+}
+
+// PHPPharPath returns the permanent Composer PHAR selected for one PHP release.
+func (m *Manager) PHPPharPath(version string) string {
+	return filepath.Join(m.phpComposerDir(version), pharName)
+}
+
 func (m *Manager) launcher(version, phar string) []byte {
 	php := filepath.Join(m.paths.VersionBin(version), core.PHPBinary())
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
@@ -28,8 +37,8 @@ func (m *Manager) legacyLauncher(version, phar string) []byte {
 	return []byte(fmt.Sprintf("#!/bin/sh\nexec \"%s\" \"%s\" \"$@\"\n", php, phar))
 }
 
-// MigrateLegacy preserves the old cached PHAR and repoints managed launchers.
-// Cache cleanup must not proceed if any legacy launcher cannot be migrated.
+// MigrateLegacy copies old shared or cached PHARs into per-PHP storage and
+// repoints managed launchers. Cache cleanup stops if a launcher cannot migrate.
 func (m *Manager) MigrateLegacy(ctx context.Context) error {
 	return m.paths.WithStateLock(ctx, func(locked context.Context) error { return m.migrateLegacy(locked, "") })
 }
@@ -43,73 +52,131 @@ func (m *Manager) migrateLegacy(ctx context.Context, replacement string) error {
 	if err != nil {
 		return fmt.Errorf("list PHP versions for Composer migration: %w", err)
 	}
-	var migrate []string
-	for _, version := range versions {
-		root, err := m.paths.OpenVersion(version, false)
-		if err != nil {
-			return err
-		}
-		data, err := root.ReadFile(filepath.Join("bin", "composer"))
-		_ = root.Close()
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("read Composer launcher for PHP %s: %w", version, err)
-		}
-		if bytes.Equal(data, m.legacyLauncher(version, legacyPath)) {
-			migrate = append(migrate, version)
-		} else if replacement == "" && bytes.Contains(data, []byte(legacyPath)) {
-			return fmt.Errorf("unrecognized legacy composer launcher for PHP %s; run phvm composer enable --php %s before clearing downloads", version, version)
-		}
-	}
 	permanent, err := m.paths.OpenDataDir(m.paths.Composer, false)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	active := false
+	defer func() {
+		if permanent != nil {
+			_ = permanent.Close()
+		}
+	}()
+	permanentReady := false
 	if permanent != nil {
-		active, err = regularPHAR(permanent)
-		_ = permanent.Close()
+		permanentReady, err = regularPHAR(permanent)
 		if err != nil {
 			return err
 		}
 	}
-	if !active {
-		legacy, err := m.paths.OpenDataDir(m.paths.Downloads, false)
-		if err != nil && !os.IsNotExist(err) {
+	legacy, err := m.paths.OpenDataDir(m.paths.Downloads, false)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if legacy != nil {
+		defer legacy.Close()
+	}
+	legacyReady := false
+	if legacy != nil {
+		legacyReady, err = regularPHAR(legacy)
+		if err != nil {
 			return err
 		}
-		if legacy != nil {
-			defer legacy.Close()
-			found, err := regularPHAR(legacy)
+	}
+	// A legacy global-only installation has no launcher to migrate. Keep its
+	// verified seed outside the disposable download cache before cleanup.
+	if legacyReady && !permanentReady {
+		if permanent == nil {
+			permanent, err = m.paths.OpenDataDir(m.paths.Composer, true)
 			if err != nil {
 				return err
 			}
-			if found {
-				if err := m.copyLegacyPHAR(ctx, legacy); err != nil {
-					return err
-				}
-				active = true
-			}
 		}
-	}
-	if !active {
-		if len(migrate) > 0 {
-			return fmt.Errorf("legacy composer PHAR missing; run phvm composer install --global before clearing downloads")
-		}
-		return nil
-	}
-	for _, version := range migrate {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		root, err := m.paths.OpenVersion(version, false)
+		stage, err := m.copyLegacyPHAR(ctx, legacy, permanent)
 		if err != nil {
 			return err
 		}
-		err = fsutil.AtomicWriteRoot(root, filepath.Join("bin", "composer"), m.launcher(version, m.pharPath()), 0755)
-		_ = root.Close()
+		if err := permanent.Rename(stage, pharName); err != nil {
+			_ = permanent.Remove(stage)
+			return err
+		}
+		permanentReady = true
+	}
+	for _, version := range versions {
+		if replacement != "" && version != replacement {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		versionRoot, err := m.paths.OpenVersion(version, false)
+		if err != nil {
+			return err
+		}
+		launcherPath := filepath.Join("bin", "composer")
+		data, err := versionRoot.ReadFile(launcherPath)
+		if os.IsNotExist(err) && replacement == "" {
+			_ = versionRoot.Close()
+			continue
+		}
+		if err != nil {
+			if !os.IsNotExist(err) {
+				_ = versionRoot.Close()
+				return fmt.Errorf("read Composer launcher for PHP %s: %w", version, err)
+			}
+			data = nil
+		}
+		if bytes.Equal(data, m.launcher(version, m.PHPPharPath(version))) {
+			_ = versionRoot.Close()
+			continue
+		}
+		known := bytes.Equal(data, m.launcher(version, m.pharPath())) ||
+			bytes.Equal(data, m.legacyLauncher(version, m.pharPath())) ||
+			bytes.Equal(data, m.launcher(version, legacyPath)) ||
+			bytes.Equal(data, m.legacyLauncher(version, legacyPath))
+		if replacement == "" && !known {
+			_ = versionRoot.Close()
+			if bytes.Contains(data, []byte(legacyPath)) || bytes.Contains(data, []byte(m.pharPath())) {
+				return fmt.Errorf("unrecognized legacy composer launcher for PHP %s; run phvm composer enable --php %s before clearing downloads", version, version)
+			}
+			continue
+		}
+		target, err := m.paths.OpenDataDir(m.phpComposerDir(version), true)
+		if err != nil {
+			_ = versionRoot.Close()
+			return err
+		}
+		hasTarget, err := regularPHAR(target)
+		if err == nil && !hasTarget {
+			var source *os.Root
+			if permanentReady {
+				source = permanent
+			} else if legacyReady {
+				source = legacy
+			} else {
+				err = fmt.Errorf("composer PHAR missing for PHP %s; run phvm composer install --php %s", version, version)
+			}
+			if source != nil {
+				var stage string
+				stage, err = m.copyLegacyPHAR(ctx, source, target)
+				if err == nil {
+					phpBin := filepath.Join(m.paths.VersionBin(version), core.PHPBinary())
+					_, err = m.composerVersion(ctx, phpBin, filepath.Join(m.phpComposerDir(version), stage))
+					if err == nil {
+						err = target.Rename(stage, pharName)
+					}
+					_ = target.Remove(stage)
+				}
+			}
+		}
+		if err == nil && hasTarget {
+			phpBin := filepath.Join(m.paths.VersionBin(version), core.PHPBinary())
+			_, err = m.composerVersion(ctx, phpBin, m.PHPPharPath(version))
+		}
+		if err == nil {
+			err = fsutil.AtomicWriteRoot(versionRoot, launcherPath, m.launcher(version, m.PHPPharPath(version)), 0755)
+		}
+		_ = target.Close()
+		_ = versionRoot.Close()
 		if err != nil {
 			return fmt.Errorf("migrate Composer launcher for PHP %s: %w", version, err)
 		}
@@ -131,35 +198,36 @@ func regularPHAR(root *os.Root) (bool, error) {
 	return true, nil
 }
 
-func (m *Manager) copyLegacyPHAR(ctx context.Context, legacy *os.Root) error {
-	source, err := legacy.Open(pharName)
+func (m *Manager) copyLegacyPHAR(ctx context.Context, sourceRoot, target *os.Root) (string, error) {
+	source, err := sourceRoot.Open(pharName)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer source.Close()
-	root, err := m.paths.OpenDataDir(m.paths.Composer, true)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
 	name := "composer.phar.migrate-" + fsutil.RandomSuffix()
-	defer func() { _ = root.Remove(name) }()
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	f, err := target.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer f.Close()
+	cleanup := func() {
+		_ = f.Close()
+		_ = target.Remove(name)
+	}
 	if _, err := io.Copy(f, source); err != nil {
-		return err
+		cleanup()
+		return "", err
 	}
 	if err := f.Sync(); err != nil {
-		return err
+		cleanup()
+		return "", err
 	}
 	if err := f.Close(); err != nil {
-		return err
+		cleanup()
+		return "", err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		cleanup()
+		return "", err
 	}
-	return root.Rename(name, pharName)
+	return name, nil
 }

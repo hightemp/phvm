@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/redact"
 	"github.com/hightemp/phvm/internal/remote"
+	"github.com/hightemp/phvm/internal/resources"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
 
@@ -36,17 +38,20 @@ type Builder struct {
 	actualEnvironment map[string]string
 	logWriter         io.Writer
 	depsManager       *deps.DepsManager
+	freeSpace         func(string) (uint64, error)
 }
 
 // NewBuilder creates a new Builder.
 func NewBuilder(paths *core.Paths, client *remote.Client) *Builder {
-	jobs := runtime.NumCPU()
-	if jobs > 1 {
-		jobs = jobs / 2
+	return newBuilder(paths, client, resources.AvailableMemory, resources.FreeDiskSpace)
+}
+
+func newBuilder(paths *core.Paths, client *remote.Client, memory func() (uint64, error), freeSpace func(string) (uint64, error)) *Builder {
+	available, err := memory()
+	if err != nil {
+		available = 0
 	}
-	if jobs < 1 {
-		jobs = 1
-	}
+	jobs := resources.ResolveJobs(0, runtime.NumCPU(), available)
 
 	return &Builder{
 		paths:       paths,
@@ -54,6 +59,7 @@ func NewBuilder(paths *core.Paths, client *remote.Client) *Builder {
 		jobs:        jobs,
 		profile:     CommonProfile(),
 		depsManager: deps.NewDepsManager(paths, client, jobs),
+		freeSpace:   freeSpace,
 	}
 }
 
@@ -138,9 +144,45 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 		b.depsManager = deps.NewDepsManager(b.paths, b.client, opts.Jobs)
 		b.depsManager.SetLogWriter(b.logWriter)
 	}
+	log.Info("Using %d parallel build job(s)", b.jobs)
+
+	// Guard both filesystems before any source or private dependency extraction.
+	archiveInfo, err := os.Stat(opts.TarballPath)
+	if err != nil {
+		return fmt.Errorf("inspect source archive: %w", err)
+	}
+	if !archiveInfo.Mode().IsRegular() {
+		return fmt.Errorf("source archive is not a regular file")
+	}
+	cacheNeed, installNeed := resources.EstimatePHPBuildSpace(archiveInfo.Size())
+	previousBytes, err := resources.DirectorySize(b.paths.VersionDir(version))
+	if err != nil {
+		return fmt.Errorf("estimate previous PHP installation: %w", err)
+	}
+	if previousBytes > math.MaxUint64-installNeed {
+		installNeed = math.MaxUint64
+	} else {
+		installNeed += previousBytes
+	}
+	if err := resources.RequireSpace(b.paths.Cache, "source extraction and build", cacheNeed, b.freeSpace); err != nil {
+		return err
+	}
+	if err := resources.RequireSpace(b.paths.Versions, "PHP installation", installNeed, b.freeSpace); err != nil {
+		return err
+	}
 
 	// Build dependencies if needed
 	if deps.NeedsDeps(version) {
+		selected, err := b.depsManager.Selected(version, flags)
+		if err != nil {
+			return fmt.Errorf("select private dependencies: %w", err)
+		}
+		if len(selected) > 0 {
+			needed := uint64(len(selected)) * (256 << 20)
+			if err := resources.RequireSpace(b.paths.Root, "private dependency extraction and build", needed, b.freeSpace); err != nil {
+				return err
+			}
+		}
 		log.Info("Building required dependencies for PHP %s...", version)
 		if err := b.depsManager.EnsureSelected(ctx, version, flags); err != nil {
 			return fmt.Errorf("build dependencies: %w", err)
@@ -187,6 +229,9 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	}
 
 	// Install
+	if err := resources.RequireSpace(b.paths.Versions, "PHP installation", installNeed, b.freeSpace); err != nil {
+		return err
+	}
 	if err := b.install(ctx, version, buildDir, tx.installRoot); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}

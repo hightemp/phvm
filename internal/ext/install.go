@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hightemp/phvm/internal/configure"
@@ -15,6 +16,7 @@ import (
 	"github.com/hightemp/phvm/internal/log"
 	"github.com/hightemp/phvm/internal/process"
 	"github.com/hightemp/phvm/internal/remote"
+	"github.com/hightemp/phvm/internal/resources"
 	"github.com/hightemp/phvm/internal/toolchain"
 )
 
@@ -28,15 +30,29 @@ type Installer struct {
 	actualFlags       []string
 	actualEnvironment map[string]string
 	buildEnvironment  toolchain.Environment
+	freeSpace         func(string) (uint64, error)
 }
 
 // NewInstaller creates a new Installer.
 func NewInstaller(paths *core.Paths, client *remote.Client) *Installer {
+	return newInstaller(paths, client, resources.AvailableMemory)
+}
+
+func newInstaller(paths *core.Paths, client *remote.Client, memory func() (uint64, error)) *Installer {
+	available, err := memory()
+	if err != nil {
+		available = 0
+	}
+	cpus := runtime.NumCPU()
+	if cpus > 4 {
+		cpus = 4
+	}
 	return &Installer{
-		paths:   paths,
-		client:  client,
-		peclAPI: remote.NewPECLAPI(client),
-		jobs:    2,
+		paths:     paths,
+		client:    client,
+		peclAPI:   remote.NewPECLAPI(client),
+		jobs:      resources.ResolveJobs(0, cpus, available),
+		freeSpace: resources.FreeDiskSpace,
 	}
 }
 
@@ -162,6 +178,20 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	if opts.SHA256 != "" {
 		method = "sha256-pinned"
 	}
+	archiveInfo, err := os.Stat(tgzPath)
+	if err != nil {
+		return fmt.Errorf("inspect extension archive: %w", err)
+	}
+	if !archiveInfo.Mode().IsRegular() {
+		return fmt.Errorf("extension archive is not a regular file")
+	}
+	buildNeed, installNeed := resources.EstimateExtensionBuildSpace(archiveInfo.Size())
+	if err := resources.RequireSpace(os.TempDir(), "extension source extraction and build", buildNeed, i.freeSpace); err != nil {
+		return err
+	}
+	if err := resources.RequireSpace(i.paths.VersionDir(opts.PHPVersion), "extension publication", installNeed, i.freeSpace); err != nil {
+		return err
+	}
 
 	// Create temp directory for building
 	buildDir, err := os.MkdirTemp("", "phvm-ext-*")
@@ -211,6 +241,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	log.Info("Validating and publishing extension...")
+	if err := resources.RequireSpace(i.paths.VersionDir(opts.PHPVersion), "extension publication", installNeed, i.freeSpace); err != nil {
+		return err
+	}
 	if err := publishExtension(ctx, i.paths, opts.PHPVersion, opts.Name, moduleName, version, srcDir, extDir, downloadURL, configurationRecord{Flags: i.actualFlags, Environment: i.actualEnvironment, SourceSHA256: sourceHash, SourceVerification: method}); err != nil {
 		return fmt.Errorf("publish extension: %w", err)
 	}

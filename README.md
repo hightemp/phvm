@@ -595,7 +595,7 @@ nested schema above. There is no silent fallback for a broken configuration.
 | Setting | CLI override | Valid values / behavior |
 |---------|--------------|-------------------------|
 | `general.default_profile` | `install --profile`, `doctor --profile` | `minimal`, `common`, `full`; default PHP build profile |
-| `general.parallel_jobs` | `install --jobs`, `ext install --jobs` | Nonnegative integer; `0` selects the builder default (PHP: half the CPUs, minimum 1; PECL: 2) |
+| `general.parallel_jobs` | `install --jobs`, `ext install --jobs` | Nonnegative integer; `0` selects memory-aware automatic jobs; an explicit positive value has priority |
 | `general.color` | `--no-color[=false]` | Boolean; `--no-color` disables color, `--no-color=false` enables it |
 | `remote.mirror` | `--mirror` | Absolute HTTP(S) base URL without query/fragment; PHP API and source downloads |
 | `remote.user_agent` | `--user-agent` | Nonempty, single-line HTTP User-Agent |
@@ -605,6 +605,14 @@ nested schema above. There is no silent fallback for a broken configuration.
 | `verify.gpg` | `--gpg`, `install --skip-gpg` | Boolean; PHP signature verification |
 | `verify.gpg_fallback_sha256` | `--gpg-fallback-sha256` | Boolean; permit unavailable GPG verification only after successful SHA256 |
 | `build.default_flags` | `install/doctor --configure-flag`, legacy `--configure` | Array of complete, single-line PHP configure arguments |
+
+For automatic jobs (`0`), phvm uses available memory as well as CPU count:
+it reserves 1 GiB and allows roughly one job per additional 2 GiB. PHP is
+also capped at half the logical CPUs; PECL is capped at two jobs. If available
+memory cannot be measured, automatic builds use one job. A positive `--jobs`
+overrides this heuristic, including when it exceeds the memory-based value.
+Memory can change during a build, so this is a starting estimate rather than
+a process memory limit.
 
 Environment variables are listed below. `PHVM_CONFIGURE_FLAGS` replaces the
 TOML flags array; explicit `--configure`/`--configure-flag` arguments are merged
@@ -958,6 +966,15 @@ tokens/passwords and known sensitive environment values. The original
 source-generated `config.log` may still contain raw values, so review it before
 sharing. If the install log cannot be opened safely, the error says it is
 unavailable instead of pointing to a nonexistent full log.
+
+Before extracting PHP or PECL sources, phvm checks the free space on the
+temporary/build filesystem and the installation filesystem using the verified
+archive size plus a safety allowance; forced PHP reinstalls also account for
+the existing installation's files. It checks the installation filesystem
+again immediately before publishing PHP or an extension. An insufficient-space
+error reports the phase, filesystem path and estimated required/available MiB.
+This estimate cannot guarantee that another process will not consume space
+while compilation runs.
 
 ### libcurl is reported by pkg-config but PHP cannot link it
 

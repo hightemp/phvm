@@ -765,7 +765,7 @@ prefix. Local builds also use this version for `phvm version`.
 
 ```bash
 # Set the version, then publish it
-printf '1.1.0\n' > VERSION
+printf '1.2.0\n' > VERSION
 make release
 ```
 

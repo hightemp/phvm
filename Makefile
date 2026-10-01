@@ -6,7 +6,7 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-s -w -X github.com/hightemp/phvm/internal/cli.Version=$(VERSION) -X github.com/hightemp/phvm/internal/cli.Commit=$(COMMIT)"
 
 GO := go
-GOFLAGS := -trimpath
+PHVM_BUILD_FLAGS := -trimpath
 GOLANGCI_LINT_VERSION := $(shell python3 scripts/tool_version.py golangci-lint)
 GOVULNCHECK_VERSION := $(shell python3 scripts/tool_version.py govulncheck)
 GOSEC_VERSION := $(shell python3 scripts/tool_version.py gosec)
@@ -22,7 +22,7 @@ all: lint test build
 # Build the binary
 build:
 	@echo "Building $(BINARY_NAME)..."
-	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/phvm
+	$(GO) build $(PHVM_BUILD_FLAGS) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/phvm
 
 # Clean build artifacts
 clean:
@@ -121,7 +121,7 @@ verify:
 # Install to GOBIN
 install: build
 	@echo "Installing $(BINARY_NAME)..."
-	$(GO) install $(GOFLAGS) $(LDFLAGS) ./cmd/phvm
+	$(GO) install $(PHVM_BUILD_FLAGS) $(LDFLAGS) ./cmd/phvm
 
 # Install to ~/.phvm/bin
 install-local: build

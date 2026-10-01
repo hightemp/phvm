@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -56,6 +57,16 @@ class ArtifactTests(unittest.TestCase):
                 else:
                     with self.assertRaises((ValueError, subprocess.SubprocessError)):
                         check.check_archives(folder, "9.9.9" if case == "wrong version" else "1.2.3", targets=[(goos, arch)])
+
+    def test_make_preserves_user_go_flags(self):
+        make = shutil.which("make")
+        if not make: self.skipTest("make unavailable")
+        result = subprocess.run(
+            [make, "--no-print-directory", "--eval", "phvm-test-go-flags:\n\t@echo $(GOFLAGS)", "phvm-test-go-flags"],
+            cwd=ROOT, env=dict(os.environ, GOFLAGS="-p=1"),
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "-p=1", "Makefile replaced user GOFLAGS, losing resource limits")
 
     def test_zip_rejects_links_in_required_documents(self):
         import check_release_artifacts as check

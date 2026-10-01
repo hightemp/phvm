@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/hightemp/phvm/internal/core"
 	"github.com/hightemp/phvm/internal/doctor"
 	"github.com/hightemp/phvm/internal/log"
+	"github.com/hightemp/phvm/internal/redact"
 )
 
 // parseVersionParts extracts major and minor version numbers.
@@ -145,13 +148,16 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Open log file
 	logPath := paths.LogFile("install-" + version)
 	logFile, err := openInstallLog(paths, version)
+	var logSink io.Writer
 	if err != nil {
-		log.Warn("Failed to create log file: %v", err)
+		log.Warn("Failed to create log file: %s", redact.Text(err.Error()))
 	} else {
 		defer logFile.Close()
-		builder.SetLogWriter(logFile)
+		logSink = logFile
 		log.Debug("Build log: %s", logPath)
 	}
+	diagnostics := newBuildDiagnostics(logSink)
+	builder.SetLogWriter(diagnostics)
 
 	buildOpts := build.BuildOptions{
 		Version:      version,
@@ -165,8 +171,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		Verification: verification,
 	}
 
-	if err := builder.Build(ctx, buildOpts); err != nil {
-		return fmt.Errorf("build failed: %w; check the log file: %s", err, logPath)
+	buildErr := builder.Build(ctx, buildOpts)
+	flushErr := diagnostics.Flush()
+	if logFile != nil {
+		flushErr = errors.Join(flushErr, logFile.Sync())
+	} else {
+		logPath = ""
+	}
+	if buildErr != nil {
+		return &installBuildError{cause: buildErr, outputErr: flushErr, stage: buildStage(buildErr), detail: diagnostics.cause(), logPath: logPath}
+	}
+	if flushErr != nil {
+		log.Warn("Build log is incomplete: %s", redact.Text(flushErr.Error()))
 	}
 
 	// Set as current if no current version
@@ -208,6 +224,9 @@ func openInstallLog(paths *core.Paths, version string) (*os.File, error) {
 	if info, err := root.Lstat(name); err == nil {
 		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("install log is not a regular file")
+		}
+		if err := root.Chmod(name, 0600); err != nil {
+			return nil, fmt.Errorf("restrict install log permissions: %w", err)
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err

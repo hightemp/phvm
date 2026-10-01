@@ -6,10 +6,14 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 var urlPattern = regexp.MustCompile(`(?i)https?://[^\s"'<>\[\]()]+`)
+var secretAssignmentPattern = regexp.MustCompile(`(?i)(\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|PASSWD|SECRET|SIGNATURE|CREDENTIAL|API_KEY|APIKEY|PRIVATE_KEY)[A-Za-z0-9_]*\s*(?:=|:)\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)`)
+var exactSecretAssignmentPattern = regexp.MustCompile(`(?i)(\b(?:KEY|AUTH|PWD|JWT)\s*(?:=|:)\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)`)
+var authorizationPattern = regexp.MustCompile(`(?i)(\bAuthorization\s*:\s*)(?:Bearer|Basic)?\s*[^\s]+`)
 
 func sensitiveKey(key string) bool {
 	key, _ = url.QueryUnescape(key)
@@ -58,8 +62,47 @@ func URL(value string) string {
 	return value
 }
 
-// Text redacts every HTTP(S) URL in a diagnostic string.
-func Text(value string) string { return urlPattern.ReplaceAllStringFunc(value, URL) }
+// Text redacts URL credentials and labelled secrets in diagnostics.
+func Text(value string) string {
+	value = urlPattern.ReplaceAllStringFunc(value, URL)
+	value = secretAssignmentPattern.ReplaceAllString(value, "${1}REDACTED")
+	value = exactSecretAssignmentPattern.ReplaceAllString(value, "${1}REDACTED")
+	return authorizationPattern.ReplaceAllString(value, "${1}REDACTED")
+}
+
+// EnvironmentSecrets returns sensitive values that may appear without labels in tool output.
+func EnvironmentSecrets(env []string) []string {
+	unique := make(map[string]struct{})
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok || value == "" {
+			continue
+		}
+		if sensitiveKey(key) && len(value) >= 3 {
+			unique[value] = struct{}{}
+		}
+		for _, secret := range secretsFromURL(value) {
+			if len(secret) >= 3 {
+				unique[secret] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(unique))
+	for value := range unique {
+		values = append(values, value)
+	}
+	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	return values
+}
+
+// WithSecrets also removes known sensitive environment values from tool output.
+func WithSecrets(value string, secrets []string) string {
+	value = Text(value)
+	for _, secret := range secrets {
+		value = strings.ReplaceAll(value, secret, "REDACTED")
+	}
+	return value
+}
 
 func secretsFromURL(value string) []string {
 	var values []string

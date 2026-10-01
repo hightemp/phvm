@@ -947,9 +947,17 @@ When an existing library is `UNUSABLE`, inspect the reported compiler, linker,
 `.pc` file and flags before installing packages again. The command does not change
 your shell or system configuration.
 
-When `configure` fails, phvm prints the last output lines and the path to
-`config.log`, which contains the compiler and linker errors. The full output
-is also saved in `~/.phvm/logs/install-<version>.log` (or `$PHVM_DIR/logs`).
+On a failed build, phvm prints the failing stage, one relevant error, a likely
+cause and the path to `~/.phvm/logs/install-<version>.log` (or `$PHVM_DIR/logs`).
+The terminal output stays short even if `make` emits hundreds of repeated linker
+errors. The file retains the complete build-tool output, including private
+dependency builds; when `configure` fails, its `config.log` is appended there
+so the compiler/linker detail is available in one place. The install log is
+created with owner-only permissions and redacts URL credentials, labelled
+tokens/passwords and known sensitive environment values. The original
+source-generated `config.log` may still contain raw values, so review it before
+sharing. If the install log cannot be opened safely, the error says it is
+unavailable instead of pointing to a nonexistent full log.
 
 ### libcurl is reported by pkg-config but PHP cannot link it
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,7 +37,11 @@ type DepsManager struct {
 	paths      *core.Paths
 	downloader *remote.Downloader
 	jobs       int
+	logWriter  io.Writer
 }
+
+// SetLogWriter streams private dependency build output to the PHP install log.
+func (m *DepsManager) SetLogWriter(w io.Writer) { m.logWriter = w }
 
 // NewDepsManager creates a new DepsManager.
 func NewDepsManager(paths *core.Paths, client *remote.Client, jobs int) *DepsManager {
@@ -338,11 +343,7 @@ func (m *DepsManager) extract(ctx context.Context, tarballPath, destDir string) 
 		return fmt.Errorf("unsupported archive format: %s", tarballPath)
 	}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("tar failed: %w\n%s", err, output)
-	}
-	return nil
+	return m.runBuildCommand(cmd, "tar failed")
 }
 
 // dependencyEnvironment prepends private paths while preserving each user flag.
@@ -395,11 +396,7 @@ func (m *DepsManager) configure(ctx context.Context, dep Dependency, sourceDir, 
 
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("configure failed: %w\n%s", err, output)
-	}
-	return nil
+	return m.runBuildCommand(cmd, "configure failed")
 }
 
 // makeDep runs make for a dependency.
@@ -409,11 +406,7 @@ func (m *DepsManager) makeDep(ctx context.Context, dep Dependency, sourceDir, de
 
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("make failed: %w\n%s", err, output)
-	}
-	return nil
+	return m.runBuildCommand(cmd, "make failed")
 }
 
 // install runs make install.
@@ -422,9 +415,20 @@ func (m *DepsManager) install(ctx context.Context, dep Dependency, sourceDir, de
 	cmd.Dir = sourceDir
 	cmd.Env = []string(dependencyEnvironment(dep.DependsOn, depsDir))
 
+	return m.runBuildCommand(cmd, "make install failed")
+}
+
+func (m *DepsManager) runBuildCommand(cmd *exec.Cmd, label string) error {
+	if m.logWriter != nil {
+		cmd.Stdout, cmd.Stderr = m.logWriter, m.logWriter
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		return nil
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("make install failed: %w\n%s", err, output)
+		return fmt.Errorf("%s: %w\n%s", label, err, output)
 	}
 	return nil
 }

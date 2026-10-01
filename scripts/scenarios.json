@@ -22,7 +22,9 @@
     {"id":"ini-snapshot","package":"github.com/hightemp/phvm/internal/ini","test":"TestSavedProfileIsExactSnapshotAndResaveRemovesStaleFiles","mode":"fixture","platforms":["linux","darwin"],"states":["save/use/resave","stale removal"]},
     {"id":"ini-rollback","package":"github.com/hightemp/phvm/internal/ini","test":"TestLateProfileValidationFailureRestoresConfiguration","mode":"fixture","platforms":["linux","darwin"],"states":["late failure","rollback"]},
     {"id":"cli-shared-lock","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIStateCommandsWaitForSamePersistentLock","mode":"fixture","platforms":["linux","darwin"],"states":["separate CLI processes","install/remove/composer/ext/cache serialization"]},
-    {"id":"cli-error-streams","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIErrorsReturnOneAndUseStderr","mode":"fixture","platforms":["linux","darwin","windows"],"states":["missing/unsafe binary","argument/network errors","exit1/stderr"]}
+    {"id":"cli-error-streams","package":"github.com/hightemp/phvm/internal/cli","test":"TestCLIErrorsReturnOneAndUseStderr","mode":"fixture","platforms":["linux","darwin","windows"],"states":["missing/unsafe binary","argument/network errors","exit1/stderr"]},
+    {"id":"build-failure-diagnostics","package":"github.com/hightemp/phvm/internal/cli","test":"TestInstallBuildFailureShowsBoundedCauseAndRedactedFullLog","mode":"fixture","platforms":["linux","darwin"],"states":["repeated linker errors","bounded cause","full private log","secret redaction"]},
+    {"id":"configure-compiler-cause","package":"github.com/hightemp/phvm/internal/cli","test":"TestInstallConfigureFailureUsesCompilerCauseFromConfigLog","mode":"fixture","platforms":["linux","darwin"],"states":["configure failure","config.log compiler cause","bounded terminal output"]}
   ],
   "runtime-fixture": [
     {"id":"composer-real-php-update","package":"github.com/hightemp/phvm/internal/composer","test":"TestUpdateRunsVerifiedPHARWithRealPHP","mode":"runtime-fixture","platforms":["linux","darwin"],"states":["real PHP","synthetic PHAR","update","independent PHP launchers"]},

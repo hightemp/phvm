@@ -12,7 +12,7 @@ runnable scenarios fails.
 
 | Command | Profile | What it proves | Prerequisites |
 |---|---|---|---|
-| `make test-scenarios` | `fixture`, 23 groups | Real application operations against local HTTP servers, controlled executables and temporary files | Go, Python 3, POSIX shell/make for source backend fixtures; no upstream downloads |
+| `make test-scenarios` | `fixture`, 25 groups | Real application operations against local HTTP servers, controlled executables and temporary files | Go, Python 3, POSIX shell/make for source backend fixtures; no upstream downloads |
 | `make test-runtime-scenarios` | `runtime-fixture`, 6 groups | Real PHP startup, PHAR execution and module loading; archives and modules are test fixtures | Linux PHP with Phar, matching PHP SDK, C compiler/make; Composer/ini groups also support macOS |
 | `make test-native-scenarios` | `native`, 2 groups | Official Composer download/update and PECL metadata/archive validation, genuine redis compilation and PHP loading | Linux, network, PHP with Phar, matching phpize/php-config, cc/make/autoconf |
 | `make test-native-build` | `native-build`, 1 group | Real PHP source configure/make/install, staged publication, version/API and ready metadata | Linux build dependencies, supplied PHP archive/version/SHA256 |
@@ -51,6 +51,7 @@ it is not silently included in the network smoke or default Go tests.
 | Composer compatibility | `composer-per-php`, `composer-pinned`, `composer-migration`: old/new PHP choose compatible releases, exact pin and rejection preserve the working PHAR, shared storage migrates without coupling future installs | Fixture |
 | Ini snapshots | `ini-snapshot`, `ini-rollback`: save/use/resave, obsolete files removed, late validation failure restores previous configuration | Fixture |
 | CLI automation | `cli-error-streams`: missing/unsafe binary, invalid arguments and network errors produce exit 1 and diagnostics on stderr | Fixture; portable registry entry |
+| Build diagnostics | `build-failure-diagnostics`, `configure-compiler-cause`: repeated linker errors stay in a redacted full log; CLI selects one bounded cause, including compiler detail from `config.log` | Fixture, POSIX |
 | Composer update | `composer-real-php-update`, `composer-failures`, `composer-cancel`, `composer-concurrency`: real PHAR execution, per-PHP launchers, HTTP/checksum/runtime/version failure, cancellation, stale concurrent update cannot downgrade one PHP | Real PHP, synthetic PHAR |
 | Ini runtime | `ini-real-php`: snapshot applied to real startup, invalid syntax/module rejected with rollback | Real PHP |
 | Extension ABI | `extension-real-abi`: compiled native C fixture, real load, wrong ABI/name/dependency rejection and uninstall | Real PHP SDK on Linux |

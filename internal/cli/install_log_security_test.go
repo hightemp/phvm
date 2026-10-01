@@ -9,10 +9,39 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/hightemp/phvm/internal/core"
 )
+
+func TestOpenInstallLogTightensExistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits")
+	}
+	paths := core.NewPaths(t.TempDir())
+	if err := paths.EnsureDirectories(); err != nil {
+		t.Fatal(err)
+	}
+	path := paths.LogFile("install-8.5.11")
+	if err := os.WriteFile(path, []byte("old log"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openInstallLog(paths, "8.5.11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Errorf("reused build log mode=%v, error=%v", info, err)
+	}
+}
 
 func TestInstallLogSymlinkCannotOverwriteOutsideRoot(t *testing.T) {
 	withoutConfigEnv(t)

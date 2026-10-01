@@ -85,6 +85,9 @@ func (b *Builder) SetConfigFlags(flags []string) { b.configFlags = append([]stri
 // SetLogWriter sets the log writer for build output.
 func (b *Builder) SetLogWriter(w io.Writer) {
 	b.logWriter = w
+	if b.depsManager != nil {
+		b.depsManager.SetLogWriter(w)
+	}
 }
 
 // BuildOptions holds options for building PHP.
@@ -133,6 +136,7 @@ func (b *Builder) build(ctx context.Context, opts BuildOptions) error {
 	if opts.Jobs > 0 {
 		b.SetJobs(opts.Jobs)
 		b.depsManager = deps.NewDepsManager(b.paths, b.client, opts.Jobs)
+		b.depsManager.SetLogWriter(b.logWriter)
 	}
 
 	// Build dependencies if needed
@@ -350,6 +354,9 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 	configurePath := filepath.Join(sourceDir, "configure")
 	env := b.Environment(version)
 	if err := configure.CheckSupported(ctx, configurePath, buildDir, env, explicitConfigureArguments(b.configFlags, b.customFlags)); err != nil {
+		if b.logWriter != nil {
+			_, _ = fmt.Fprintln(b.logWriter, err)
+		}
 		return err
 	}
 	cmd := process.CommandContext(ctx, configurePath, flags...)
@@ -381,12 +388,49 @@ func (b *Builder) configure(ctx context.Context, version, sourceDir, buildDir, i
 		}
 		configLog := filepath.Join(buildDir, "config.log")
 		if fsutil.Exists(configLog) {
+			if appendErr := b.appendConfigLog(buildDir); appendErr != nil {
+				log.Warn("Could not include config.log in build log: %s", redact.Text(appendErr.Error()))
+			}
 			details += "\nSee " + configLog + " for compiler/linker details"
 		}
 		return fmt.Errorf("configure failed: %w%s\n%s", err, redact.Text(details), env.Describe(ctx))
 	}
 
 	return nil
+}
+
+func (b *Builder) appendConfigLog(buildDir string) error {
+	if b.logWriter == nil {
+		return nil
+	}
+	var root *os.Root
+	var err error
+	if b.paths != nil {
+		root, err = b.paths.OpenDataDir(buildDir, false)
+	} else {
+		root, err = os.OpenRoot(buildDir)
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Lstat("config.log")
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("config.log is not a regular file")
+	}
+	file, err := root.Open("config.log")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := io.WriteString(b.logWriter, "\n--- config.log ---\n"); err != nil {
+		return err
+	}
+	_, err = io.Copy(b.logWriter, file)
+	return err
 }
 
 func (b *Builder) configureArguments(version, installDir string) []string {
